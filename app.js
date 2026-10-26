@@ -1,9 +1,19 @@
 // Screen logic and rendering.
 // Milestone 1: draws Day A from PROGRAM. Nothing is interactive or saved yet.
 
+// Mon → A, Wed → B, Fri → C, any other weekday → A.
+// (Later, the rotation from finished sessions will take priority.)
+function suggestedDay() {
+  const weekday = new Date().getDay(); // 0 = Sunday, 1 = Monday, ...
+  if (weekday === 3) return "B";
+  if (weekday === 5) return "C";
+  return "A";
+}
+
 const state = {
-  day: "A",
+  day: suggestedDay(),
   openBlockIndex: 0,
+  pickerOpen: false,
 };
 
 const CHECK_ICON =
@@ -35,44 +45,48 @@ function countSets(block) {
   return block.exercises.reduce((sum, ex) => sum + ex.sets, 0);
 }
 
-function formatToday() {
-  return new Date().toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-}
+const CHEVRON_ICON =
+  '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
+  '<path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
+  "</svg>";
 
 function renderHeader() {
   const day = PROGRAM[state.day];
   const total = day.blocks.reduce((sum, block) => sum + countSets(block), 0);
   const logged = 0;
+  const isManual = state.day !== suggestedDay();
 
-  const tabsHtml = Object.keys(PROGRAM)
-    .map((key) => {
-      const selected = key === state.day;
-      return `
-        <button class="tab" type="button" aria-pressed="${selected}">
-          <span class="tab-weekday">${PROGRAM[key].weekday}</span>
-          <span class="tab-day">${PROGRAM[key].title}</span>
-        </button>`;
-    })
-    .join("");
+  // The day list only exists in the page while the picker is open.
+  let pickerHtml = "";
+  if (state.pickerOpen) {
+    const options = Object.keys(PROGRAM)
+      .map((key) => {
+        const selected = key === state.day;
+        return `
+          <button class="day-option" type="button" data-day="${key}" aria-pressed="${selected}">
+            <span class="day-option-weekday">${PROGRAM[key].weekday}</span>
+            <span class="day-option-subtitle">${PROGRAM[key].subtitle}</span>
+          </button>`;
+      })
+      .join("");
+    pickerHtml = `<div class="day-picker">${options}</div>`;
+  }
 
   document.getElementById("header").innerHTML = `
-    <div class="date-line">${formatToday()} · <span>next in rotation</span></div>
-    <h1 class="day-title">${day.title}</h1>
-    <p class="day-subtitle">${day.subtitle}</p>
+    <button class="day-toggle" type="button" aria-expanded="${state.pickerOpen}"
+      aria-label="${day.weekday}, ${day.subtitle}. Change day">
+      <span class="day-title">${day.weekday}</span>
+      <span class="day-subtitle">– ${day.subtitle}</span>
+      ${isManual ? '<span class="manual-tag">Manual</span>' : ""}
+      <span class="day-chevron">${CHEVRON_ICON}</span>
+    </button>
     <div class="progress">
-      <div class="progress-text">
-        <span>Sets</span>
-        <span>${logged} / ${total}</span>
-      </div>
       <div class="progress-bar">
         <div class="progress-fill" style="width: ${(logged / total) * 100}%"></div>
       </div>
+      <span class="progress-text">${logged} / ${total} sets</span>
     </div>
-    <div class="tabs">${tabsHtml}</div>`;
+    ${pickerHtml}`;
 }
 
 function renderSetRow(exercise, setNumber, isActive) {
@@ -158,5 +172,21 @@ function render() {
   renderHeader();
   renderContent();
 }
+
+// One listener on the header handles all its buttons, even after re-rendering.
+document.getElementById("header").addEventListener("click", (event) => {
+  const option = event.target.closest(".day-option");
+  if (option) {
+    state.day = option.dataset.day;
+    state.openBlockIndex = 0;
+    state.pickerOpen = false;
+    render();
+    return;
+  }
+  if (event.target.closest(".day-toggle")) {
+    state.pickerOpen = !state.pickerOpen;
+    renderHeader();
+  }
+});
 
 render();

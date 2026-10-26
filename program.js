@@ -7,8 +7,7 @@
 
 const PROGRAM = {
   A: {
-    title: "Day A",
-    weekday: "Mon",
+    weekday: "Monday",
     subtitle: "Heavy press & hinge",
     blocks: [
       {
@@ -43,8 +42,7 @@ const PROGRAM = {
   },
 
   B: {
-    title: "Day B",
-    weekday: "Wed",
+    weekday: "Wednesday",
     subtitle: "Moderate reps",
     blocks: [
       {
@@ -79,8 +77,7 @@ const PROGRAM = {
   },
 
   C: {
-    title: "Day C",
-    weekday: "Fri",
+    weekday: "Friday",
     subtitle: "Machines & higher reps",
     blocks: [
       {

@@ -74,46 +74,65 @@ button {
 }
 
 /* ---------- Header ---------- */
-.date-line {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-}
-
-.date-line .manual {
-  color: var(--warn);
+/* The whole top line is one button that opens the day picker. */
+.day-toggle {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
 }
 
 .day-title {
-  margin: 4px 0 0;
-  font-size: 24px;
+  flex-shrink: 0;
+  font-size: 20px;
   font-weight: 700;
 }
 
 .day-subtitle {
-  margin: 2px 0 0;
+  min-width: 0;
   font-size: 15px;
   color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.manual-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--warn);
+}
+
+.day-chevron {
+  flex-shrink: 0;
+  margin-left: auto;
+  align-self: center;
+  display: flex;
+  color: var(--muted);
+  transition: transform 150ms;
+}
+
+.day-toggle[aria-expanded="true"] .day-chevron {
+  transform: rotate(180deg);
 }
 
 .progress {
-  margin-top: 12px;
-}
-
-.progress-text {
   display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
 }
 
 .progress-bar {
-  margin-top: 6px;
+  flex: 1;
   height: 4px;
   border-radius: 2px;
   background: var(--divider);
@@ -126,44 +145,47 @@ button {
   transition: width 150ms;
 }
 
-.tabs {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.tab {
-  height: 48px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-}
-
-.tab-weekday {
-  font-size: 14px;
+.progress-text {
+  flex-shrink: 0;
+  font-size: 12px;
   font-weight: 600;
-}
-
-.tab-day {
-  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
 }
 
-.tab[aria-pressed="true"] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--bg);
+.day-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
 }
 
-.tab[aria-pressed="true"] .tab-day {
-  color: var(--bg);
+.day-option {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.day-option-weekday {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.day-option-subtitle {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.day-option[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-faint);
 }
 
 /* ---------- Collapsed block ---------- */

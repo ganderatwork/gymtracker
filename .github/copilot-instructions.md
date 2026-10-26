@@ -35,6 +35,8 @@ Give every exercise slot a stable `id` (e.g. `A-bench`). History is looked up by
 
 `inc` is the weight step in kg used when the app suggests an increase.
 
+The letters A/B/C are internal keys only (used in ids and the data model). The UI never shows "Day A/B/C"; it shows the weekday name (`weekday` in `program.js`, e.g. "Monday") and the subtitle.
+
 ### Day A (Monday): heavy press and hinge
 
 | Slot | Exercise | Sets | Reps | inc |
@@ -80,9 +82,9 @@ Give every exercise slot a stable `id` (e.g. `A-bench`). History is looked up by
 
 1. On open, the app selects **the next day in the rotation**: after the last finished session's day A comes B, after B comes C, after C comes A.
 2. With no finished sessions, it picks by weekday: Monday → A, Wednesday → B, Friday → C. Any other weekday → A.
-3. Three tabs (Mon / Wed / Fri, each with "Day A/B/C" under it) let the user override with one tap.
-4. The header shows the date and "next in rotation" when the suggested day is shown. When the user has picked another day, it shows "Manual choice" in amber.
-5. An unfinished session for a day survives switching tabs and closing the app; the app resumes it.
+3. Tapping the header's top line opens a day picker: three rows (Monday / Wednesday / Friday, each with its subtitle). Tapping a row switches to that day and closes the picker.
+4. When the user has picked a day other than the suggested one, the top line shows a small amber "MANUAL" tag. No date and no "next in rotation" text.
+5. An unfinished session for a day survives switching days and closing the app; the app resumes it.
 
 ### "Last time"
 
@@ -90,10 +92,10 @@ Give every exercise slot a stable `id` (e.g. `A-bench`). History is looked up by
 
 ### Workout screen
 
-- **Header:**
-  - Date line, day title (e.g. "Day A") and subtitle (e.g. "Heavy press & hinge").
-  - Progress as "logged / total sets", with a thin progress bar.
-  - The three day tabs.
+- **Header (compact, two lines):**
+  - Top line: one button reading "Monday – Heavy press & hinge" (weekday bold, subtitle muted), optional MANUAL tag, and a chevron on the right. Tapping it opens/closes the day picker.
+  - Second line: a thin progress bar with "logged / total sets" to its right.
+  - The day picker only appears below these lines while open.
 - **Blocks:**
   - Exactly one block is open at a time; the others are collapsed into a one-line button. The button shows block letter, exercise names and "logged/total".
   - Tapping a collapsed block opens it.
@@ -233,14 +235,14 @@ Dark only. Match the approved mockup.
 | Token | Value | Use |
 |---|---|---|
 | `--bg` | `#0E1013` | Page background, input background |
-| `--surface` | `#171A1F` | Cards, inactive tabs |
+| `--surface` | `#171A1F` | Cards, day picker rows |
 | `--surface-2` | `#13161A` | Collapsed blocks, header and footer areas |
 | `--border` | `#262B33` | Card borders |
 | `--border-input` | `#2E343D` | Inputs and outline buttons |
 | `--divider` | `#22262D` | Dividers, progress-bar track |
 | `--text` | `#EEF0F3` | Primary text |
 | `--muted` | `#9AA3AE` | Labels, last-time values |
-| `--accent` | `#3DD6F5` | Active set, selected tab, progress |
+| `--accent` | `#3DD6F5` | Active set, selected day in picker, progress |
 | `--good` | `#4ADE80` | Top of range, add weight, done |
 | `--warn` | `#F5A524` | Below range, manual day choice |
 
@@ -249,7 +251,7 @@ Dark only. Match the approved mockup.
 - Inter (Google Fonts, weights 400–700), falling back to `system-ui, sans-serif`.
 - `font-variant-numeric: tabular-nums` on everything, so digits line up.
 - Sizes:
-  - Day title: 24px bold.
+  - Day title (weekday): 20px bold; subtitle next to it 15px.
   - Exercise name: 17px semibold.
   - Inputs: 17px bold.
   - Last-time values: 15px.
@@ -261,7 +263,7 @@ Dark only. Match the approved mockup.
 - Full-height column: header (not scrolling), then scrolling content.
 - Content padding 16px. Cards have 16px corner radius and 12px inner padding.
 - Set row grid columns: `22px minmax(0,1fr) 70px 56px 48px`, gap 6px.
-- Inputs 44px tall, radius 10px. Log button 48×44px, radius 12px. Tabs 48px tall.
+- Inputs 44px tall, radius 10px. Log button 48×44px, radius 12px. Header top line at least 44px tall; day picker rows 48px tall.
 - Every tap target is at least 44px.
 - Respect the phone's safe areas: `viewport-fit=cover` plus `env(safe-area-inset-*)` padding.
 - Transitions max 150ms. Nothing decorative.
@@ -276,7 +278,7 @@ Dark only. Match the approved mockup.
 Each milestone ends with a short "how to test it" note for the owner.
 
 1. **Static screen.** Write `program.js` and render Day A from it, matching the design. No saving yet. Test by opening `index.html` through VS Code's Live Server (or `python -m http.server`) and on the phone over the local network.
-2. **Logging and rules.** Inputs, log/undo, active-set movement, block auto-open, rep colors, day tabs.
+2. **Logging and rules.** Inputs, log/undo, active-set movement, block auto-open, rep colors, day picker.
 3. **Saving and history.** `storage.js`, resume an unfinished session, "Finish workout", last-time values from real history, prefill, ADD WEIGHT badge, rotation logic, wake lock. Add a temporary debug option to fill in fake history, for testing the badge and the colors.
 4. **Backup.** Settings screen with export and import.
 5. **PWA and deploy.**
