@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^git status; \"---\"; git log --oneline -5; \"---\"; git log origin/main --oneline -5; \"---\"; git ls-tree -r --name-only origin/main$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

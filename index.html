@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0E1013" />
     <title>Training Tracker</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon-192.png" type="image/png" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -21,8 +23,17 @@
       <main id="content" class="content"></main>
     </div>
 
-    <!-- program.js must load first: app.js reads the PROGRAM it defines. -->
+    <!-- Shown by app.js when a new version has been downloaded. -->
+    <button id="update-banner" class="update-banner" type="button" hidden>
+      Update available – tap to reload
+    </button>
+
+    <!-- Order matters: each file uses things defined in the ones above it. -->
     <script src="./program.js"></script>
+    <script src="./storage.js"></script>
+    <script src="./sync.js"></script>
     <script src="./app.js"></script>
+    <!-- TEMPORARY: remove together with debug.js -->
+    <script src="./debug.js"></script>
   </body>
 </html>
