@@ -1,4 +1,4 @@
-# Training Tracker – project spec
+# gymtracker – project spec
 
 A personal workout-logging PWA for one user on an Android phone (Chrome). It runs a fixed 3-day full-body program, shows last time's numbers next to this time's inputs, and flags when to add weight. Data is saved on the phone first and backed up to a Google Sheet.
 
@@ -215,7 +215,7 @@ Reached from a small gear icon button in the header. Contains:
 ## PWA
 
 - **`manifest.webmanifest`:**
-  - `name` "Training Tracker", `short_name` "Training".
+  - `name` and `short_name` "gymtracker".
   - `start_url` "./", `scope` "./", `display` "standalone".
   - `background_color` and `theme_color` `#0E1013`.
   - Icons 192 and 512, plus a maskable icon.

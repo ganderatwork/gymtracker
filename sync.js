@@ -31,7 +31,11 @@ async function callScript(settings, body) {
       signal: controller.signal,
     });
   } catch (error) {
-    throw new Error("Could not reach the Sheet. Are you online?");
+    // Offline looks the same as an HTML error page from Google (the browser blocks reading it).
+    throw new Error(
+      "Could not reach the Sheet script. If you are online: check that the deployment has access " +
+        "\"Anyone\", and that the code was saved before deploying (then deploy a new version)."
+    );
   } finally {
     clearTimeout(timer);
   }

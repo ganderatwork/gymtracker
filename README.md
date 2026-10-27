@@ -1,4 +1,4 @@
-# Training Tracker
+# gymtracker
 
 A personal workout-logging app for an Android phone. It runs a fixed 3-day program, shows last time's numbers next to today's inputs, and tells you when to add weight. Workouts are saved on the phone first and backed up to a Google Sheet.
 
@@ -57,6 +57,12 @@ The key stops strangers from writing to your Sheet. It lives only in the script'
 3. Set **Execute as: Me** and **Who has access: Anyone**.
 4. Click **Deploy**. Google asks for permission: **Authorize access** → choose your account → **Advanced** → **Go to … (unsafe)** → **Allow**. (It says "unsafe" only because you wrote the script yourself and Google hasn't reviewed it.)
 5. Copy the **Web app URL**. It ends in `/exec`.
+   - It's shown in the "New deployment" dialog right after you click **Deploy**, with a **Copy** button.
+   - To find it later: **Deploy** → **Manage deployments** → select the deployment.
+   - Don't use the URL from **Test deployments** (it ends in `/dev`); the app won't accept it.
+6. **Check it:** open the URL in a browser tab.
+   - "Script function not found: doGet" means all is well. The script only answers the app.
+   - A "needs your permission" box means the script isn't authorized yet. Tap **Review permissions** → your account → **Advanced** → **Go to gymtracker (unsafe)** → **Allow**. Until this is done, the app shows "Could not reach the Sheet script".
 
 "Anyone" means anyone with the URL can *reach* the script, but it rejects every request without the right key.
 

@@ -1,4 +1,4 @@
-// Training Tracker – Google Apps Script backend.
+// gymtracker – Google Apps Script backend.
 //
 // This file is NOT run from the repo. Paste it into the Sheet's Apps Script editor
 // (Extensions → Apps Script). See README.md for the full steps.

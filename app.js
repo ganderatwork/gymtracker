@@ -709,7 +709,7 @@ async function importBackup(file) {
 
   const imported = parseBackup(text);
   if (imported === null) {
-    showSettingsMessage("That file is not a Training Tracker backup.", true);
+    showSettingsMessage("That file is not a gymtracker backup.", true);
     return;
   }
 
