@@ -20,6 +20,7 @@ A personal workout-logging PWA for one user on an Android phone (Chrome). It run
 | `program.js` | The training program as data (the only place to edit exercises) |
 | `storage.js` | Saving and reading sessions on the phone |
 | `sync.js` | Sending sessions to the Google Sheet and restoring from it |
+| `extras.js` | Extra exercises: the library, the "Add exercises" bottom sheet, extra blocks and their history rules |
 | `app.js` | Screen logic and rendering |
 | `manifest.webmanifest` | PWA name, colors, icons |
 | `sw.js` | Service worker for offline use |
@@ -144,6 +145,35 @@ Shown on an exercise card when either condition holds:
 
 1. **Earned last time:** every logged set last time reached the top of the range, and at least one set was logged. The text reads "Top reps last time. Now X kg.", where X is the raised prefill weight.
 2. **Earned today:** every set logged today reached the top of the range. The text reads "All sets at top today. Go heavier next time." This takes priority if both are true.
+3. **Pushed by an extra** (program exercises only): see "Extra sets that push the program" below. The text reads "Top reps as an extra. Now X kg.", and the weight prefill is raised by `inc` exactly like "Earned last time". "Earned today" still wins.
+
+### Extra exercises
+
+After the program's last block, the user can add extra blocks. Each holds one or two exercises, done as alternating sets exactly like program blocks.
+
+- **Exercise library:** `tt.exercises` in localStorage, an array of `{ id, name, sets, lo, hi, inc, sourceProgramIds, createdAt }`.
+  - Ids are `x-` plus a slug of the name (`x-cable-crunch`), with `-2`, `-3` if taken. Never reuse or change an id.
+  - `sourceProgramIds` lists the program slot ids with the same name (e.g. `A-cable-lateral` and `C-cable-lateral`), or is empty for custom exercises. A new exercise typed with a program exercise's name is linked the same way.
+  - Picking a program exercise creates (or reuses) a library entry with its own `x-` id and the program's sets, range and inc (the first day it appears on wins). Program ids and program history are never touched.
+  - New exercise defaults: 3 sets, 10–12 reps, inc 2.5. Name required and unique (case-insensitive).
+- **UI:**
+  - After the last program block: an "EXTRAS" label, the extra blocks, then a dashed "+ Add exercises" button (52px).
+  - Extra blocks behave like program blocks: collapsible, one open at a time, letters E, F, … with slots E1/E2, "Alternate" only for pairs. When the last program block is completed, the next unfinished extra block opens. A newly added block opens immediately.
+  - "+ Add exercises" opens a bottom sheet (max 80% height, own scroll, `--surface`). Close button, tapping outside, Escape and Android back close it. Contents: search field, "Your exercises" (most recently used first), "From the program" (each name once, skipping names in the library), "+ New exercise" form. Rows are 48px with name and "sets × lo–hi"; max 2 selected; exercises already in today's workout are hidden. Sticky button: "Add 1 exercise" / "Add pair".
+  - A single extra block has a "+ Pair with…" button (same sheet, one selection, becomes the second slot).
+  - Each extra card has a "Remove" button. If sets are logged, confirm first. It deletes that exercise's sets from today only. An empty block disappears; a pair becomes a single.
+  - Header progress includes extra sets.
+- **History for extras** ("last time", prefill, badge). Use the first source that gives something:
+  1. **Extra history:** this exercise id's sets in the most recent finished session that has them. Custom exercises always use it. Program-linked exercises only if that session finished at most `EXTRA_HISTORY_MAX_DAYS` (30) days ago.
+  2. **Program ballpark** (program-linked only): the sets for any id in `sourceProgramIds` in the most recent finished session that has one of them. Show a small muted "PROGRAM" tag next to the rep range.
+  3. **Nothing:** "—", no prefill.
+
+  With source 1 or 2, prefill, filling empty fields on log, rep colors and both ADD WEIGHT rules work exactly as for program exercises, using the library entry's lo/hi/inc. The 30-day rule only affects what is displayed; never delete or hide stored data.
+- **Extra sets that push the program:** for a program slot:
+  - Its "last program session" is the most recent finished session of its day; its working weight is the heaviest set it logged there. No sets there → no push.
+  - Take the most recent finished session where a library entry listing this slot in `sourceProgramIds` was logged. It must have finished at or after the slot's last program session.
+  - If any of those extra sets has weight ≥ the working weight and reps ≥ the slot's top of range, the slot gets ADD WEIGHT condition 3. Each slot is checked against its own range and weight. After one more program session at the slot, older extras no longer count.
+- Extras never affect finishing, the zero-sets rule, rotation or the wake lock.
 
 ### Finishing
 
@@ -173,20 +203,27 @@ The owner rests by feel. Do not add a timer.
   synced: false,
   sets: [
     { exerciseId: "A-bench", setNumber: 1, weight: 62.5, reps: 8, loggedAt: "ISO date" }
-  ]
+  ],
+  // Extra blocks in the order added, so added-but-unlogged extras survive a reload.
+  // Old sessions without `extras` are treated as having none.
+  extras: [{ block: "E", exerciseIds: ["x-cable-crunch", "x-pec-deck"] }]
 }
 ```
 
+Logged extra sets go into the same `sets` array as program sets.
+
 ### Storage on the phone (`storage.js`)
 
-- Store all sessions as one JSON array in `localStorage` under the key `tt.sessions`. Store settings under `tt.settings`. The data stays small (about 150 sessions a year), so `localStorage` is enough.
+- Store all sessions as one JSON array in `localStorage` under the key `tt.sessions`. Store the exercise library under `tt.exercises` and settings under `tt.settings`. The data stays small (about 150 sessions a year), so `localStorage` is enough.
 - Save after every logged or undone set.
 - On first start, call `navigator.storage.persist()` to ask Chrome not to clear the data.
 - Wrap all reads and writes in try/catch. Corrupt or missing data must never crash the app; start empty instead and show a warning.
 
 ### Sync to Google Sheet (`sync.js` + `apps-script/Code.gs`)
 
-- **Sheet layout:** one tab named `sets`, one row per logged set. Columns: `sessionId, date, day, exerciseId, exerciseName, setNumber, weightKg, reps, loggedAt`.
+- **Sheet layout:**
+  - Tab `sets`, one row per logged set. Columns: `sessionId, date, day, exerciseId, exerciseName, setNumber, weightKg, reps, loggedAt`. Extra sets use the library name in `exerciseName`.
+  - Tab `exercises`, the library. Columns: `id, name, sets, lo, hi, inc, sourceProgramIds, createdAt` (`sourceProgramIds` as a comma-separated string).
 - **Apps Script:**
   - Deployed as a web app: "Execute as: me", "Who has access: anyone".
   - The script stores the secret key in Script Properties (`SECRET_KEY`), never in the code.
@@ -195,11 +232,13 @@ The owner rests by feel. Do not add a timer.
   - Always `POST` with `Content-Type: text/plain` and a JSON body. This avoids the CORS preflight that Apps Script cannot answer.
   - Body shape: `{ key, action, ... }`.
   - `action: "saveSession"`: replace all rows with that `sessionId` (delete, then append). Retries can then never create duplicates.
-  - `action: "list"`: return all rows, for restoring.
+  - `action: "saveExercises"`: merge the full library into the `exercises` tab by id (the app's entries win; rows the app doesn't have are kept, so an incomplete phone library can't wipe the Sheet).
+  - `action: "list"`: return all set rows and the library (`{ ok, rows, exercises }`), for restoring.
   - `action: "ping"`: return `{ ok: true }` to test the connection.
   - Responses are JSON: `{ ok: true, ... }` or `{ ok: false, error }`.
 - **When to sync:** on finish, every finished session with `synced: false` is sent. The same check runs on app start and on the browser's `online` event. On success, set `synced: true`.
-- **Restore from Sheet:** rebuild sessions from the rows and merge them with local data by `sessionId`. Local data wins for sessions not yet synced.
+  - Any library change sets `exercisesSynced: false` in `tt.settings`. The next sync sends `saveExercises` first, then sessions, and sets it back to `true` on success.
+- **Restore from Sheet:** merge the library by id first (local wins), then rebuild sessions from the rows and merge them with local data by `sessionId`. Local data wins for sessions not yet synced.
 
 ### Settings screen
 
@@ -207,10 +246,10 @@ Reached from a small gear icon button in the header. Contains:
 
 - **Apps Script URL** and **secret key** inputs, saved to `tt.settings`.
 - A **"Test connection"** button (sends `ping`).
-- **Sync status:** last successful sync time and number of unsynced sessions.
+- **Sync status:** last successful sync time, number of unsynced sessions, and whether the exercise library is synced.
 - **"Restore from Sheet"**, with a confirmation dialog first.
-- **"Export backup"**: downloads all sessions as `training-backup-YYYY-MM-DD.json`.
-- **"Import backup"**: loads that file and merges by `sessionId`, with confirmation first.
+- **"Export backup"**: downloads `{ version: 2, sessions, exercises }` as `training-backup-YYYY-MM-DD.json`.
+- **"Import backup"**: loads that file and merges the library by id, then sessions by `sessionId`, with confirmation first. Old backups (a plain sessions array) still work.
 
 ## PWA
 
@@ -290,6 +329,11 @@ Each milestone ends with a short "how to test it" note for the owner.
    - Write the README steps: create the Sheet, open Extensions → Apps Script, paste the code, set the `SECRET_KEY` script property, deploy as a web app, then paste the URL and key into the app's settings.
    - Test with "Test connection", then finish a session and check the rows in the Sheet.
 7. **Restore from Sheet.** Test by clearing the app's site data in Chrome, then restoring.
+8. **Extra exercises.** Built in four steps:
+   1. Library storage and the bottom sheet (search, multi-select, create).
+   2. Extra blocks: alternating order, logging, the three history sources, prefill, colors, badge, remove, pair-with, resume after reload, and the "extra sets that push the program" rule. The debug fake history includes extras older and newer than 30 days, and one that beats the program.
+   3. Sync (`exercises` tab, `saveExercises`, `list` with library), backup v2 and restore. Update `Code.gs` and deploy a new version.
+   4. This file and the README.
 
 ## Out of scope for now
 

@@ -16,6 +16,10 @@ const state = {
   view: "workout",
   // Result of the last export/import, shown on the settings screen: { text, isError }.
   settingsMessage: null,
+  // Saved extra exercises (see storage.js and extras.js).
+  library: loadExercises(),
+  // The "Add exercises" bottom sheet while open, otherwise null (see extras.js).
+  sheet: null,
 };
 
 // ---------- Sessions and history ----------
@@ -55,14 +59,43 @@ function findLoggedSet(exerciseId, setNumber) {
   return session.sets.find((s) => s.exerciseId === exerciseId && s.setNumber === setNumber) || null;
 }
 
-// "Last time" = the sets for this exercise in the latest finished session of the same day.
-function lastTimeSets(exerciseId) {
-  const session = lastFinishedSession(state.day);
-  return session ? session.sets.filter((s) => s.exerciseId === exerciseId) : [];
+// The session for today's day, starting a new one if needed.
+function getOrStartSession() {
+  let session = unfinishedSession(state.day);
+  if (!session) {
+    const now = new Date().toISOString();
+    session = {
+      id: now + "-" + state.day,
+      day: state.day,
+      startedAt: now,
+      finishedAt: null,
+      synced: false,
+      sets: [],
+      extras: [],
+    };
+    state.sessions.push(session);
+  }
+  return session;
 }
 
-function lastTimeSet(exerciseId, setNumber) {
-  return lastTimeSets(exerciseId).find((s) => s.setNumber === setNumber) || null;
+// Where an exercise's "last time" comes from: { sets, programTag }.
+// Program exercises: the latest finished session of the same day.
+// Extras: see extraHistory() in extras.js. `programTag` = show the small PROGRAM tag.
+function lastTimeInfo(exercise) {
+  if (exercise.isExtra) {
+    const history = extraHistory(exercise);
+    return { sets: history.sets, programTag: history.source === "program" };
+  }
+  const session = lastFinishedSession(state.day);
+  return { sets: session ? session.sets.filter((s) => s.exerciseId === exercise.id) : [], programTag: false };
+}
+
+function lastTimeSets(exercise) {
+  return lastTimeInfo(exercise).sets;
+}
+
+function lastTimeSet(exercise, setNumber) {
+  return lastTimeSets(exercise).find((s) => s.setNumber === setNumber) || null;
 }
 
 function allAtTop(sets, exercise) {
@@ -70,7 +103,7 @@ function allAtTop(sets, exercise) {
 }
 
 function earnedLastTime(exercise) {
-  return allAtTop(lastTimeSets(exercise.id), exercise);
+  return allAtTop(lastTimeSets(exercise), exercise);
 }
 
 function earnedToday(exercise) {
@@ -79,15 +112,15 @@ function earnedToday(exercise) {
   return allAtTop(sets, exercise);
 }
 
-// Weight to pre-fill: same set last time (or last time's first set), plus `inc` if earned.
-// Returns null when there is no history.
+// Weight to pre-fill: same set last time (or last time's first set), plus `inc` if earned
+// (last time, or by an extra that pushed this program exercise). Returns null when there is no history.
 function prefillWeight(exercise, setNumber) {
-  const sets = lastTimeSets(exercise.id);
+  const sets = lastTimeSets(exercise);
   if (sets.length === 0) return null;
   const sameSet = sets.find((s) => s.setNumber === setNumber);
   const firstSet = sets.reduce((a, b) => (b.setNumber < a.setNumber ? b : a));
   const base = (sameSet || firstSet).weight;
-  if (!earnedLastTime(exercise)) return base;
+  if (!earnedLastTime(exercise) && !pushedByExtra(exercise)) return base;
   // Rounding avoids results like 63.750000001.
   return Math.round((base + exercise.inc) * 100) / 100;
 }
@@ -130,8 +163,13 @@ function repsClass(reps, exercise) {
   return "";
 }
 
+// Today's blocks: the program's four, then any extra blocks (E, F, …) added to the session.
+function allBlocks() {
+  return PROGRAM[state.day].blocks.concat(extraBlocks(unfinishedSession(state.day)));
+}
+
 function findExercise(exerciseId) {
-  for (const block of PROGRAM[state.day].blocks) {
+  for (const block of allBlocks()) {
     const found = block.exercises.find((ex) => ex.id === exerciseId);
     if (found) return found;
   }
@@ -179,7 +217,7 @@ function findActiveSet(block) {
 // The next block (after `fromIndex`, wrapping around) that still has unlogged sets.
 // Returns -1 when every block is done.
 function nextUnfinishedBlock(fromIndex) {
-  const blocks = PROGRAM[state.day].blocks;
+  const blocks = allBlocks();
   for (let step = 1; step <= blocks.length; step++) {
     const index = (fromIndex + step) % blocks.length;
     if (countLogged(blocks[index]) < countSets(blocks[index])) return index;
@@ -215,8 +253,9 @@ function renderHeader() {
   }
 
   const day = PROGRAM[state.day];
-  const total = day.blocks.reduce((sum, block) => sum + countSets(block), 0);
-  const logged = day.blocks.reduce((sum, block) => sum + countLogged(block), 0);
+  const blocks = allBlocks();
+  const total = blocks.reduce((sum, block) => sum + countSets(block), 0);
+  const logged = blocks.reduce((sum, block) => sum + countLogged(block), 0);
   const isManual = state.day !== state.suggested;
 
   // The day list only exists in the page while the picker is open.
@@ -256,7 +295,7 @@ function renderHeader() {
 }
 
 function renderSetRow(exercise, setNumber, isActive) {
-  const label = exercise.name + ", set " + setNumber;
+  const label = escapeHtml(exercise.name + ", set " + setNumber);
   const key = setKey(exercise.id, setNumber);
   const loggedSet = findLoggedSet(exercise.id, setNumber);
   const draft = state.drafts[state.day][key] || {};
@@ -270,7 +309,7 @@ function renderSetRow(exercise, setNumber, isActive) {
   const colorClass = repsClass(parseReps(repsText), exercise);
   const readonly = loggedSet ? "readonly" : "";
 
-  const last = lastTimeSet(exercise.id, setNumber);
+  const last = lastTimeSet(exercise, setNumber);
   let lastText = "—";
   let lastClass = "set-last empty";
   if (last) {
@@ -298,13 +337,15 @@ function renderSetRow(exercise, setNumber, isActive) {
     </div>`;
 }
 
-// The ADD WEIGHT badge. "Earned today" wins when both apply.
+// The ADD WEIGHT badge. "Earned today" wins over the others.
 function renderBadge(exercise) {
   let text;
   if (earnedToday(exercise)) {
     text = "All sets at top today. Go heavier next time.";
   } else if (earnedLastTime(exercise)) {
     text = "Top reps last time. Now " + prefillWeight(exercise, 1) + " kg.";
+  } else if (pushedByExtra(exercise)) {
+    text = "Top reps as an extra. Now " + prefillWeight(exercise, 1) + " kg.";
   } else {
     return "";
   }
@@ -321,11 +362,21 @@ function renderExerciseCard(exercise, activeSet) {
     rowsHtml += renderSetRow(exercise, setNumber, isActive);
   }
 
+  // Extras: a Remove button, and a PROGRAM tag when "last time" is a ballpark from the program.
+  const removeHtml = exercise.isExtra
+    ? `<button class="text-btn remove-btn" type="button" data-remove="${escapeHtml(exercise.id)}"
+        aria-label="Remove ${escapeHtml(exercise.name)}">Remove</button>`
+    : "";
+  const tagHtml = lastTimeInfo(exercise).programTag ? '<span class="program-tag">Program</span>' : "";
+
   return `
     <section class="card">
-      <div class="card-slot">${exercise.slot}</div>
-      <h2 class="card-name">${exercise.name}</h2>
-      <div class="card-meta">${exercise.sets} × ${repRange(exercise)}</div>
+      <div class="card-head">
+        <div class="card-slot">${exercise.slot}</div>
+        ${removeHtml}
+      </div>
+      <h2 class="card-name">${escapeHtml(exercise.name)}</h2>
+      <div class="card-meta">${exercise.sets} × ${repRange(exercise)} ${tagHtml}</div>
       ${renderBadge(exercise)}
       <div class="col-heads set-grid">
         <span>Set</span>
@@ -338,22 +389,31 @@ function renderExerciseCard(exercise, activeSet) {
     </section>`;
 }
 
-function renderOpenBlock(block) {
+function renderOpenBlock(block, index) {
   const activeSet = findActiveSet(block);
   const cardsHtml = block.exercises.map((ex) => renderExerciseCard(ex, activeSet)).join("");
+  const isPair = block.exercises.length === 2;
+  const extraIndex = index - PROGRAM[state.day].blocks.length;
+
+  // A single extra can get a partner with "+ Pair with…".
+  const pairHtml =
+    block.isExtra && !isPair
+      ? `<button class="text-btn pair-btn" type="button" data-pair="${extraIndex}">+ Pair with…</button>`
+      : "";
 
   return `
     <div class="block-open">
       <div class="block-head">
         <span class="block-label">Block ${block.letter}</span>
-        <span class="block-mode">Alternate</span>
+        ${isPair ? '<span class="block-mode">Alternate</span>' : ""}
       </div>
       ${cardsHtml}
+      ${pairHtml}
     </div>`;
 }
 
 function renderCollapsedBlock(block, index) {
-  const names = block.exercises.map((ex) => ex.name).join(" / ");
+  const names = block.exercises.map((ex) => escapeHtml(ex.name)).join(" / ");
   const done = countLogged(block) === countSets(block);
   return `
     <button class="block-collapsed${done ? " done" : ""}" type="button" data-block="${index}"
@@ -370,11 +430,14 @@ function renderContent() {
     return;
   }
 
-  const day = PROGRAM[state.day];
-  const blocksHtml = day.blocks
-    .map((block, index) =>
-      index === state.openBlockIndex ? renderOpenBlock(block) : renderCollapsedBlock(block, index)
-    )
+  const blocks = allBlocks();
+  const programCount = PROGRAM[state.day].blocks.length;
+  const renderBlock = (block, index) =>
+    index === state.openBlockIndex ? renderOpenBlock(block, index) : renderCollapsedBlock(block, index);
+  const blocksHtml = blocks.slice(0, programCount).map(renderBlock).join("");
+  const extraBlocksHtml = blocks
+    .slice(programCount)
+    .map((block, i) => renderBlock(block, programCount + i))
     .join("");
 
   const session = unfinishedSession(state.day);
@@ -392,6 +455,7 @@ function renderContent() {
   document.getElementById("content").innerHTML = `
     ${warningHtml}
     ${blocksHtml}
+    ${renderExtrasSection(extraBlocksHtml)}
     ${finishHtml}`;
 }
 
@@ -411,7 +475,8 @@ function renderSyncStatus() {
     ? new Date(settings.lastSyncAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })
     : "never";
   const unsynced = state.sessions.filter((s) => s.finishedAt && !s.synced).length;
-  return `Last sync: ${lastSync}<br />Unsynced workouts: ${unsynced}`;
+  const library = settings.exercisesSynced ? "synced" : "waiting to sync";
+  return `Last sync: ${lastSync}<br />Unsynced workouts: ${unsynced}<br />Extra exercises: ${library}`;
 }
 
 // Updates only the status text, so a field being typed in isn't redrawn.
@@ -515,8 +580,8 @@ function toggleLog(exerciseId, setNumber) {
     // Undo: put the numbers back in the inputs so they can be corrected.
     drafts[key] = { weight: String(loggedSet.weight), reps: String(loggedSet.reps) };
     session.sets = session.sets.filter((s) => s !== loggedSet);
-    // An empty session is removed, so it isn't resumed later.
-    if (session.sets.length === 0) {
+    // A session with nothing left in it is removed, so it isn't resumed later.
+    if (session.sets.length === 0 && !(session.extras && session.extras.length > 0)) {
       state.sessions = state.sessions.filter((s) => s !== session);
     }
     saveSessions(state.sessions);
@@ -533,7 +598,7 @@ function toggleLog(exerciseId, setNumber) {
   }
   let repsText = draft.reps || "";
   if (repsText.trim() === "") {
-    const last = lastTimeSet(exerciseId, setNumber);
+    const last = lastTimeSet(exercise, setNumber);
     repsText = last ? String(last.reps) : "";
   }
 
@@ -542,18 +607,7 @@ function toggleLog(exerciseId, setNumber) {
   if (weight === null) return flagInput(key, "weight");
   if (reps === null) return flagInput(key, "reps");
 
-  if (!session) {
-    const now = new Date().toISOString();
-    session = {
-      id: now + "-" + state.day,
-      day: state.day,
-      startedAt: now,
-      finishedAt: null,
-      synced: false,
-      sets: [],
-    };
-    state.sessions.push(session);
-  }
+  session = getOrStartSession();
   session.sets.push({
     exerciseId: exerciseId,
     setNumber: setNumber,
@@ -566,7 +620,7 @@ function toggleLog(exerciseId, setNumber) {
   vibrate();
 
   // When the open block is complete, open the next unfinished one.
-  const openBlock = PROGRAM[state.day].blocks[state.openBlockIndex];
+  const openBlock = allBlocks()[state.openBlockIndex];
   let movedToNextBlock = false;
   if (countLogged(openBlock) === countSets(openBlock)) {
     const next = nextUnfinishedBlock(state.openBlockIndex);
@@ -673,18 +727,26 @@ async function restoreFromSheet() {
   showSettingsMessage("Restoring…", false, "sync");
   let remote;
   try {
-    remote = await fetchSheetSessions();
+    remote = await fetchSheetData();
   } catch (error) {
     showSettingsMessage(error.message, true, "sync");
     return;
   }
 
-  const result = mergeFromSheet(state.sessions, remote);
+  // The library first (so extras have names), then the workouts.
+  const library = mergeLibrary(state.library, remote.exercises);
+  state.library = library.library;
+  saveExercises(state.library);
+  const remoteIds = new Set(remote.exercises.map((e) => e.id));
+  if (state.library.some((e) => !remoteIds.has(e.id))) markLibraryChanged();
+
+  const result = mergeFromSheet(state.sessions, remote.sessions);
   state.sessions = result.sessions;
   refreshAfterDataChange();
   if (saveSessions(state.sessions)) {
     showSettingsMessage(
-      "Restored " + remote.length + " workouts from the Sheet (" + result.addedCount + " new on this phone).",
+      "Restored " + remote.sessions.length + " workouts (" + result.addedCount + " new on this phone) and " +
+        remote.exercises.length + " extra exercises (" + library.addedCount + " new).",
       false,
       "sync"
     );
@@ -694,8 +756,12 @@ async function restoreFromSheet() {
 }
 
 function exportBackup() {
-  downloadBackup(state.sessions);
+  downloadBackup(state.sessions, state.library);
   showSettingsMessage("Backup downloaded. Keep it somewhere safe, like Google Drive.", false);
+}
+
+function plural(count, word) {
+  return count + " " + word + (count === 1 ? "" : "s");
 }
 
 async function importBackup(file) {
@@ -713,23 +779,31 @@ async function importBackup(file) {
     return;
   }
 
-  const merged = mergeSessions(state.sessions, imported);
+  const library = mergeLibrary(state.library, imported.exercises);
+  const merged = mergeSessions(state.sessions, imported.sessions);
   const newCount = merged.length - state.sessions.length;
-  if (newCount === 0) {
+  if (newCount === 0 && library.addedCount === 0) {
     showSettingsMessage("Nothing new in that file. Everything in it is already on this phone.", false);
     return;
   }
 
   const ok = confirm(
-    "Add " + newCount + " workout" + (newCount === 1 ? "" : "s") + " from this file?\n\n" +
-      "Workouts already on this phone are kept as they are."
+    "Add " + plural(newCount, "workout") + " and " + plural(library.addedCount, "extra exercise") +
+      " from this file?\n\nEverything already on this phone is kept as it is."
   );
   if (!ok) return;
 
+  // The library first (so extras have names), then the workouts.
+  state.library = library.library;
+  const libraryOk = saveExercises(state.library);
+  if (library.addedCount > 0) markLibraryChanged();
   state.sessions = merged;
   refreshAfterDataChange();
-  if (saveSessions(state.sessions)) {
-    showSettingsMessage("Imported " + newCount + " workout" + (newCount === 1 ? "" : "s") + ".", false);
+  if (saveSessions(state.sessions) && libraryOk) {
+    showSettingsMessage(
+      "Imported " + plural(newCount, "workout") + " and " + plural(library.addedCount, "extra exercise") + ".",
+      false
+    );
   } else {
     showSettingsMessage("Import failed: could not save on this phone.", true);
   }
@@ -780,6 +854,20 @@ content.addEventListener("click", (event) => {
   }
   if (event.target.closest(".finish-btn")) {
     finishWorkout();
+    return;
+  }
+  if (event.target.closest(".add-extras-btn")) {
+    openSheet(2);
+    return;
+  }
+  const pairButton = event.target.closest(".pair-btn");
+  if (pairButton) {
+    openSheet(1, Number(pairButton.dataset.pair));
+    return;
+  }
+  const removeButton = event.target.closest(".remove-btn");
+  if (removeButton) {
+    removeExtraExercise(removeButton.dataset.remove);
     return;
   }
   const collapsed = event.target.closest(".block-collapsed");

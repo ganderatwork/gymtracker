@@ -1,4 +1,4 @@
-// TEMPORARY test helper for milestone 3. Delete this file and its <script> tag when done.
+// TEMPORARY test helper. Delete this file and its <script> tag when done.
 // It only shows up when the address ends with ?debug (e.g. http://localhost:8000/?debug).
 
 (function () {
@@ -45,15 +45,72 @@
   function fillFakeHistory() {
     const sessions = loadSessions().filter((s) => !s.id.startsWith("debug-"));
     // A a week ago, B 5 days ago, C 3 days ago → the rotation suggests A next.
-    sessions.push(fakeSession("A", 7), fakeSession("B", 5), fakeSession("C", 3));
+    const a = fakeSession("A", 7);
+    const b = fakeSession("B", 5);
+    const c = fakeSession("C", 3);
+    // An older Monday, only there to hold an extra that is more than 30 days old.
+    const oldA = fakeSession("A", 40);
+
+    // Extras. Library entries with these names are reused if they already exist.
+    const library = loadExercises();
+    const crunch = ensureEntry(library, "Cable crunch", 3, 12, 15, 2.5, []);
+    const pecDeck = ensureEntry(library, "Pec deck", 2, 12, 15, 2.5, ["C-pec-deck"]);
+    const facePull = ensureEntry(library, "Face pull", 3, 12, 15, 2.5, ["B-face-pull"]);
+    const triceps = ensureEntry(library, "Overhead cable triceps extension", 2, 10, 12, 2.5, ["A-oh-triceps"]);
+    saveExercises(library);
+
+    // Recent extra (7 days): Pec deck on Monday uses its own history, no PROGRAM tag.
+    addExtra(a, "E", pecDeck, 30, [15, 13]);
+    // Custom extra at the top of its range: Cable crunch shows ADD WEIGHT.
+    addExtra(c, "E", crunch, 40, [15, 15, 15]);
+    // Beats Monday's triceps (55 kg × 12 is the program's weight and top reps):
+    // Monday's D2 card shows "Top reps as an extra. Now 57.5 kg."
+    addExtra(c, "F", triceps, 55, [12]);
+    // Old extra (40 days): Face pull falls back to the program's numbers and shows the PROGRAM tag.
+    addExtra(oldA, "E", facePull, 25, [12, 12, 12]);
+
+    sessions.push(oldA, a, b, c);
     saveSessions(sessions);
     location.reload();
   }
 
+  function ensureEntry(library, name, sets, lo, hi, inc, sourceProgramIds) {
+    const existing = library.find((e) => e.name.toLowerCase() === name.toLowerCase());
+    if (existing) return existing;
+    const entry = {
+      id: makeExerciseId(name, library),
+      name: name,
+      sets: sets,
+      lo: lo,
+      hi: hi,
+      inc: inc,
+      sourceProgramIds: sourceProgramIds,
+      createdAt: new Date(Date.now() - 60 * DAY_MS).toISOString(),
+    };
+    library.push(entry);
+    return entry;
+  }
+
+  // Adds an extra block with one exercise and its logged sets to a fake session.
+  function addExtra(session, letter, entry, weight, repsPerSet) {
+    session.extras = session.extras || [];
+    session.extras.push({ block: letter, exerciseIds: [entry.id] });
+    repsPerSet.forEach((reps, i) => {
+      session.sets.push({
+        exerciseId: entry.id,
+        setNumber: i + 1,
+        weight: weight,
+        reps: reps,
+        loggedAt: session.finishedAt,
+      });
+    });
+  }
+
   function clearAllData() {
-    if (!confirm("Delete ALL saved workouts on this device?")) return;
+    if (!confirm("Delete ALL saved workouts and extra exercises on this device?")) return;
     try {
       localStorage.removeItem(SESSIONS_KEY);
+      localStorage.removeItem(EXERCISES_KEY);
     } catch (error) {
       // ignore
     }

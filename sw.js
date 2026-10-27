@@ -1,7 +1,7 @@
 // Service worker: keeps a copy of the app on the phone so it opens instantly and works offline.
 
 // Bump this on EVERY deploy (v2, v3, ...). That is how the phone notices there is a new version.
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v4";
 const CACHE_NAME = "tt-" + CACHE_VERSION;
 const FONT_CACHE = "tt-fonts";
 
@@ -14,6 +14,7 @@ const APP_FILES = [
   "./program.js",
   "./storage.js",
   "./sync.js",
+  "./extras.js",
   "./app.js",
   "./debug.js",
   "./manifest.webmanifest",

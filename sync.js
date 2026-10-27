@@ -51,6 +51,8 @@ async function callScript(settings, body) {
 }
 
 function exerciseNameById(exerciseId) {
+  const entry = state.library.find((e) => e.id === exerciseId);
+  if (entry) return entry.name;
   for (const day of Object.values(PROGRAM)) {
     for (const block of day.blocks) {
       const exercise = block.exercises.find((ex) => ex.id === exerciseId);
@@ -84,6 +86,27 @@ function sessionToRows(session) {
 
 // ---------- Sending ----------
 
+// Call after any change to the library, so the next sync sends it.
+function markLibraryChanged() {
+  const settings = loadSettings();
+  settings.exercisesSynced = false;
+  saveSettings(settings);
+}
+
+// One row of the Sheet's `exercises` tab.
+function exerciseToRow(entry) {
+  return {
+    id: entry.id,
+    name: entry.name,
+    sets: entry.sets,
+    lo: entry.lo,
+    hi: entry.hi,
+    inc: entry.inc,
+    sourceProgramIds: entry.sourceProgramIds.join(","),
+    createdAt: entry.createdAt,
+  };
+}
+
 let runningSync = null;
 
 // Sends every finished, unsynced workout. If a sync is already running, waits for that one instead.
@@ -104,6 +127,24 @@ async function sendUnsynced() {
   }
 
   let sent = 0;
+
+  // The library goes first, so the Sheet knows the extra exercises' names.
+  if (!settings.exercisesSynced) {
+    const snapshot = JSON.stringify(state.library);
+    try {
+      await callScript(settings, { action: "saveExercises", exercises: state.library.map(exerciseToRow) });
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+    // Only mark it sent if nothing was added to the library while we were sending.
+    if (JSON.stringify(state.library) === snapshot) {
+      const latest = loadSettings();
+      latest.exercisesSynced = true;
+      saveSettings(latest);
+    }
+    sent++;
+  }
+
   // Look again each round, so a workout finished during the sync is sent too.
   for (;;) {
     const next = state.sessions.find((s) => s.finishedAt && !s.synced);
@@ -123,8 +164,10 @@ async function sendUnsynced() {
   }
 
   if (sent > 0) {
-    settings.lastSyncAt = new Date().toISOString();
-    saveSettings(settings);
+    // Load again: other settings may have changed during the sync.
+    const latest = loadSettings();
+    latest.lastSyncAt = new Date().toISOString();
+    saveSettings(latest);
   }
   return { ok: true, sent: sent };
 }
@@ -170,10 +213,29 @@ function rowsToSessions(rows) {
   return sessions;
 }
 
-// Fetches all rows from the Sheet and turns them into sessions.
-async function fetchSheetSessions() {
+// Sheet `exercises` rows → library entries. Rows that don't make sense are skipped.
+function rowsToLibrary(rows) {
+  return rows
+    .map((row) => ({
+      id: String(row.id || ""),
+      name: String(row.name || ""),
+      sets: Number(row.sets),
+      lo: Number(row.lo),
+      hi: Number(row.hi),
+      inc: Number(row.inc),
+      sourceProgramIds: String(row.sourceProgramIds || "").split(",").filter(Boolean),
+      createdAt: String(row.createdAt || ""),
+    }))
+    .filter((entry) => entry.name !== "" && isValidLibraryExercise(entry));
+}
+
+// Fetches everything from the Sheet: { sessions, exercises }.
+async function fetchSheetData() {
   const data = await callScript(loadSettings(), { action: "list" });
-  return rowsToSessions(Array.isArray(data.rows) ? data.rows : []);
+  return {
+    sessions: rowsToSessions(Array.isArray(data.rows) ? data.rows : []),
+    exercises: rowsToLibrary(Array.isArray(data.exercises) ? data.exercises : []),
+  };
 }
 
 // Merges by session id. Local workouts not yet synced always win; otherwise the Sheet's version is used.

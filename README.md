@@ -75,14 +75,23 @@ The key stops strangers from writing to your Sheet. It lives only in the script'
 
 If you're offline when finishing, it says "Saved · will sync when online". It is sent automatically the next time the app opens or the phone comes back online.
 
-### 4.5 Changing the script later
+### 4.5 Updating the script (keeps the same URL)
 
-If you edit `Code.gs`, paste it in again, then **Deploy** → **Manage deployments** → pencil icon → **Version: New version** → **Deploy**. This keeps the same URL.
+Whenever `Code.gs` changes in this repo (for example when extra exercises were added), update the deployed script:
+
+1. Open the Sheet → **Extensions** → **Apps Script**.
+2. Select all the old code, paste in the new [`apps-script/Code.gs`](apps-script/Code.gs), and click **Save**.
+3. Click **Deploy** → **Manage deployments** → select the deployment → pencil icon (edit).
+4. Under **Version**, choose **New version** → **Deploy**.
+
+The URL stays the same, so nothing changes in the app. Skipping step 3–4 means the old code keeps running. With an old script, syncing extra exercises fails with "Unknown action."
+
+The extra exercises are stored in a second tab, `exercises`, which the script creates by itself.
 
 ## 5. Restore
 
-- **From the Sheet:** Settings → **Restore from Sheet**. Workouts from the Sheet are added to the phone. Workouts on the phone that aren't synced yet are never overwritten.
-- **From a backup file:** Settings → **Export backup** saves a `training-backup-YYYY-MM-DD.json` file. **Import backup** adds the workouts from such a file. Workouts already on the phone are kept as they are.
+- **From the Sheet:** Settings → **Restore from Sheet**. Extra exercises and workouts from the Sheet are added to the phone. Workouts on the phone that aren't synced yet are never overwritten.
+- **From a backup file:** Settings → **Export backup** saves a `training-backup-YYYY-MM-DD.json` file with all workouts and extra exercises. **Import backup** adds what's missing from such a file (older backup files without extra exercises still work). Everything already on the phone is kept as it is.
 
 To test restoring: Chrome → **⋮** → **Settings** → **Site settings** → **All sites** → your github.io address → **Delete data**. Open the app, enter the URL and key again, and tap **Restore from Sheet**.
 
@@ -90,8 +99,14 @@ To test restoring: Chrome → **⋮** → **Settings** → **Site settings** →
 
 Add `?debug` to the address (e.g. `https://ganderatwork.github.io/gymtracker/?debug`) to show two buttons:
 
-- **Debug: fake history** adds three fake finished workouts, to see the ADD WEIGHT badge and the rep colors. They are never sent to the Sheet.
-- **Debug: clear all** deletes every workout on that device.
+- **Debug: fake history** adds fake finished workouts, to see the ADD WEIGHT badge, the rep colors and extra exercises:
+  - Cable crunch (custom extra) at the top of its range: ADD WEIGHT.
+  - Pec deck on Monday: its own extra history from a week ago.
+  - Face pull: its extra history is 40 days old, so it shows the program's numbers with a PROGRAM tag.
+  - Monday's overhead triceps: "Top reps as an extra", because an extra beat the program.
+
+  They are never sent to the Sheet (but the fake extra exercises are added to your library).
+- **Debug: clear all** deletes every workout and extra exercise on that device.
 
 To remove the helper: delete `debug.js`, its `<script>` line in `index.html`, its line in `APP_FILES` in `sw.js`, and the "debug panel" styles at the end of `styles.css`. Then bump `CACHE_VERSION`.
 
@@ -102,8 +117,9 @@ To remove the helper: delete `debug.js`, its `<script>` line in `index.html`, it
 | `index.html` | App shell and markup |
 | `styles.css` | All styling; colors are CSS variables at the top |
 | `program.js` | The training program (the only place to edit exercises) |
-| `storage.js` | Saving workouts and settings on the phone, backup files |
+| `storage.js` | Saving workouts, extra exercises and settings on the phone, backup files |
 | `sync.js` | Sending workouts to the Google Sheet and restoring from it |
+| `extras.js` | Extra exercises: library, "Add exercises" sheet, extra blocks and their history |
 | `app.js` | Screens, logging rules, settings |
 | `manifest.webmanifest` | App name, colors and icons for installing |
 | `sw.js` | Service worker: offline copy and updates |

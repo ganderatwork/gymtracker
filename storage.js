@@ -55,6 +55,78 @@ function requestPersistentStorage() {
   }
 }
 
+// ---------- Exercise library (extras) ----------
+
+const EXERCISES_KEY = "tt.exercises";
+
+// True if `e` looks like a library entry: { id, name, sets, lo, hi, inc, sourceProgramIds, createdAt }.
+function isValidLibraryExercise(e) {
+  return Boolean(
+    e &&
+      typeof e.id === "string" &&
+      e.id.startsWith("x-") &&
+      typeof e.name === "string" &&
+      Number.isFinite(e.sets) &&
+      Number.isFinite(e.lo) &&
+      Number.isFinite(e.hi) &&
+      Number.isFinite(e.inc) &&
+      Array.isArray(e.sourceProgramIds)
+  );
+}
+
+// Same safety rules as loadSessions(): never crash, keep a copy of unreadable data.
+function loadExercises() {
+  let raw = null;
+  try {
+    raw = localStorage.getItem(EXERCISES_KEY);
+    if (raw === null) return [];
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) throw new Error("Saved library is not a list");
+    return list.filter(isValidLibraryExercise);
+  } catch (error) {
+    try {
+      if (raw !== null) localStorage.setItem(EXERCISES_KEY + ".corrupt", raw);
+    } catch (copyError) {
+      // Nothing more we can do.
+    }
+    storageWarning = "Saved exercises could not be read, so the library started empty.";
+    return [];
+  }
+}
+
+function saveExercises(list) {
+  try {
+    localStorage.setItem(EXERCISES_KEY, JSON.stringify(list));
+    return true;
+  } catch (error) {
+    storageWarning = "Could not save exercises on this phone. Storage may be full or blocked.";
+    return false;
+  }
+}
+
+// "Cable Crunch (rope)" → "cable-crunch-rope"
+function slugify(name) {
+  const slug = name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "") // strip accents: é → e
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "exercise";
+}
+
+// A new, never-used id like "x-cable-crunch", or "x-cable-crunch-2" if that is taken.
+function makeExerciseId(name, library) {
+  const base = "x-" + slugify(name);
+  let id = base;
+  let n = 2;
+  while (library.some((e) => e.id === id)) {
+    id = base + "-" + n;
+    n++;
+  }
+  return id;
+}
+
 // ---------- Settings ----------
 
 const SETTINGS_KEY = "tt.settings";
@@ -71,6 +143,8 @@ function loadSettings() {
     scriptUrl: typeof saved.scriptUrl === "string" ? saved.scriptUrl : "",
     secretKey: typeof saved.secretKey === "string" ? saved.secretKey : "",
     lastSyncAt: typeof saved.lastSyncAt === "string" ? saved.lastSyncAt : null,
+    // false = the exercise library has changed and must be sent to the Sheet.
+    exercisesSynced: saved.exercisesSynced !== false,
   };
 }
 
@@ -86,13 +160,14 @@ function saveSettings(settings) {
 
 // ---------- Backup files ----------
 
-// Downloads all sessions as training-backup-YYYY-MM-DD.json.
-function downloadBackup(sessions) {
+// Downloads everything as training-backup-YYYY-MM-DD.json: { version: 2, sessions, exercises }.
+function downloadBackup(sessions, exercises) {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   const date = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate());
 
-  const blob = new Blob([JSON.stringify(sessions, null, 2)], { type: "application/json" });
+  const backup = { version: 2, sessions: sessions, exercises: exercises };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   // A temporary hidden link with `download` makes the browser save the file.
   const link = document.createElement("a");
@@ -104,15 +179,29 @@ function downloadBackup(sessions) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// Reads the text of a backup file. Returns the list of sessions, or null if it isn't a backup.
+// Reads the text of a backup file. Returns { sessions, exercises }, or null if it isn't a backup.
+// Old backups (before extras) are a plain list of sessions; those still work.
 function parseBackup(text) {
   try {
     const data = JSON.parse(text);
-    if (!Array.isArray(data)) return null;
-    return data.filter(isValidSession);
+    if (Array.isArray(data)) return { sessions: data.filter(isValidSession), exercises: [] };
+    if (data && Array.isArray(data.sessions)) {
+      return {
+        sessions: data.sessions.filter(isValidSession),
+        exercises: Array.isArray(data.exercises) ? data.exercises.filter(isValidLibraryExercise) : [],
+      };
+    }
+    return null;
   } catch (error) {
     return null;
   }
+}
+
+// Adds library entries that aren't on the phone yet, matched by id. Existing ones are kept as they are.
+function mergeLibrary(local, incoming) {
+  const localIds = new Set(local.map((e) => e.id));
+  const added = incoming.filter((e) => !localIds.has(e.id));
+  return { library: local.concat(added), addedCount: added.length };
 }
 
 // Adds imported sessions to the local ones, matched by id.
