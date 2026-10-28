@@ -98,35 +98,32 @@ The letters A/B/C are internal keys only (used in ids and the data model). The U
   - Second line: a thin progress bar with "logged / total sets" to its right.
   - The day picker only appears below these lines while open.
 - **Blocks:**
-  - Exactly one block is open at a time; the others are collapsed into a one-line button. The button shows block letter, exercise names and "logged/total".
-  - Tapping a collapsed block opens it.
-  - When every set in the open block is logged, the next block opens automatically.
-- **Open block:**
-  - "BLOCK A" label in the accent color, plus "Alternate" on the right.
-  - Below it, one card per exercise.
+  - Every block (program and extra) is always open, in order; the page simply scrolls. No collapsing and no auto-open.
+  - Each block is a panel on `--bg` with a 1px `--border` border, 16px radius and 10px padding. 20px gap between blocks.
+  - Inside: "BLOCK A" label in the accent color, "Alternate" on the right when it holds two exercises, then one card per exercise.
 - **Exercise card:**
-  - Slot code and name, "sets × rep range".
+  - Slot code and name; "sets × rep range" with a "completed / total" counter (e.g. "1/3") on the right, in `--good` when all sets are complete, otherwise `--muted`.
   - Optional ADD WEIGHT badge.
-  - Column headers: SET · LAST TIME · KG · REPS · (button).
+  - Column headers: SET · LAST TIME · KG · REPS.
   - One row per set.
 - **Set row:**
-  - Set number.
+  - Set number, replaced by a ✓ in `--text` when the set is complete. The row's inputs then get `opacity: 0.75` but stay editable. (Not green: green means top of range.)
   - Last time as `weight × reps`; append ` ✓` when those reps reached the top of the range.
-  - Weight input and reps input.
-  - A log button showing a check icon.
-- **Active set:** the first unlogged set in the open block's alternating order. Its row gets an accent border and faint accent background, and its log button is filled with the accent color. After a set is logged, the highlight moves on.
+  - Weight input and reps input. No log button.
+- No active-set highlight.
 
 ### Inputs and logging
 
-- **Weight input prefill:** the weight logged for the same set number last time. If that set is missing, use last time's first set. If the exercise earned an increase last time, prefill last weight + `inc`. No history → empty.
+- **Weight input prefill:** the weight logged for the same set number last time. If that set is missing, use last time's first set. If the exercise earned an increase last time, prefill last weight + `inc`. No history → empty. The prefill is a real value, so a set is usually complete as soon as reps are typed.
 - **Reps input** starts empty, with placeholder "–".
 - Both inputs use `type="text"` with `inputmode="decimal"` (weight) or `inputmode="numeric"` (reps), so Android opens the number keypad. Accept a comma or a dot as the decimal separator.
-- **Tapping log:**
-  - If reps is empty, use last time's reps for that set.
-  - If weight is empty, use the prefill.
-  - Mark the set logged and save immediately.
-  - Vibrate briefly (`navigator.vibrate(30)`, wrapped in try/catch).
-- **Tapping log on a logged set** undoes it.
+- **A set is complete** when both fields hold valid numbers: weight ≥ 0, reps a whole number ≥ 1.
+- **Save on every input change:**
+  - When a set becomes complete, add it to the session's `sets` (`loggedAt` = the first time it became complete).
+  - If its values change, update it.
+  - When it stops being complete, remove it. Clearing reps is the "undo".
+- Typed text is kept in memory while the app is open; only complete sets are saved.
+- No log button, no vibration, and no filling empty fields from last time.
 - **Skipped sets** stay empty. They are not saved and do not count against the add-weight rule.
 
 ### Rep colors
@@ -158,10 +155,10 @@ After the program's last block, the user can add extra blocks. Each holds one or
   - New exercise defaults: 3 sets, 10–12 reps, inc 2.5. Name required and unique (case-insensitive).
 - **UI:**
   - After the last program block: an "EXTRAS" label, the extra blocks, then a dashed "+ Add exercises" button (52px).
-  - Extra blocks behave like program blocks: collapsible, one open at a time, letters E, F, … with slots E1/E2, "Alternate" only for pairs. When the last program block is completed, the next unfinished extra block opens. A newly added block opens immediately.
+  - Extra blocks look and behave like program blocks: always open, letters E, F, … with slots E1/E2, "Alternate" only for pairs. After adding a block (or pairing), the page scrolls to it.
   - "+ Add exercises" opens a bottom sheet (max 80% height, own scroll, `--surface`). Close button, tapping outside, Escape and Android back close it. Contents: search field, "Your exercises" (most recently used first), "From the program" (each name once, skipping names in the library), "+ New exercise" form. Rows are 48px with name and "sets × lo–hi"; max 2 selected; exercises already in today's workout are hidden. Sticky button: "Add 1 exercise" / "Add pair".
   - A single extra block has a "+ Pair with…" button (same sheet, one selection, becomes the second slot).
-  - Each extra card has a "Remove" button. If sets are logged, confirm first. It deletes that exercise's sets from today only. An empty block disappears; a pair becomes a single.
+  - Each extra card has a "Remove" button. If sets are complete, confirm first. It deletes that exercise's sets from today only. An empty block disappears; a pair becomes a single.
   - Header progress includes extra sets.
 - **History for extras** ("last time", prefill, badge). Use the first source that gives something:
   1. **Extra history:** this exercise id's sets in the most recent finished session that has them. Custom exercises always use it. Program-linked exercises only if that session finished at most `EXTRA_HISTORY_MAX_DAYS` (30) days ago.
@@ -179,7 +176,7 @@ After the program's last block, the user can add extra blocks. Each holds one or
 
 - A "Finish workout" button sits at the end of the scrolling content. It marks the session finished, saves it, and triggers sync.
 - After finishing, the button shows "Saved · synced to Sheet" in green, or "Saved · will sync when online" if the sync failed.
-- A session with zero logged sets cannot be finished.
+- A session with zero complete sets cannot be finished.
 
 ### Keep the screen on
 
@@ -215,7 +212,7 @@ Logged extra sets go into the same `sets` array as program sets.
 ### Storage on the phone (`storage.js`)
 
 - Store all sessions as one JSON array in `localStorage` under the key `tt.sessions`. Store the exercise library under `tt.exercises` and settings under `tt.settings`. The data stays small (about 150 sessions a year), so `localStorage` is enough.
-- Save after every logged or undone set.
+- Save after every change to a set (completed, edited or cleared).
 - On first start, call `navigator.storage.persist()` to ask Chrome not to clear the data.
 - Wrap all reads and writes in try/catch. Corrupt or missing data must never crash the app; start empty instead and show a warning.
 
@@ -275,13 +272,13 @@ Dark only. Match the approved mockup.
 |---|---|---|
 | `--bg` | `#0E1013` | Page background, input background |
 | `--surface` | `#171A1F` | Cards, day picker rows |
-| `--surface-2` | `#13161A` | Collapsed blocks, header and footer areas |
+| `--surface-2` | `#13161A` | Header and footer areas |
 | `--border` | `#262B33` | Card borders |
 | `--border-input` | `#2E343D` | Inputs and outline buttons |
 | `--divider` | `#22262D` | Dividers, progress-bar track |
 | `--text` | `#EEF0F3` | Primary text |
 | `--muted` | `#9AA3AE` | Labels, last-time values |
-| `--accent` | `#3DD6F5` | Active set, selected day in picker, progress |
+| `--accent` | `#3DD6F5` | Block labels, selected day in picker, progress |
 | `--good` | `#4ADE80` | Top of range, add weight, done |
 | `--warn` | `#F5A524` | Below range, manual day choice |
 
@@ -301,8 +298,8 @@ Dark only. Match the approved mockup.
 
 - Full-height column: header (not scrolling), then scrolling content.
 - Content padding 16px. Cards have 16px corner radius and 12px inner padding.
-- Set row grid columns: `22px minmax(0,1fr) 70px 56px 48px`, gap 6px.
-- Inputs 44px tall, radius 10px. Log button 48×44px, radius 12px. Header top line at least 44px tall; day picker rows 48px tall.
+- Set row grid columns: `22px minmax(0,1fr) 80px 64px`, gap 6px.
+- Inputs 44px tall, radius 10px. Header top line at least 44px tall; day picker rows 48px tall.
 - Every tap target is at least 44px.
 - Respect the phone's safe areas: `viewport-fit=cover` plus `env(safe-area-inset-*)` padding.
 - Transitions max 150ms. Nothing decorative.
@@ -310,6 +307,7 @@ Dark only. Match the approved mockup.
 ### Accessibility
 
 - Real `<button>` and `<input>` elements, with `aria-label` on icon-only buttons and on every input. Example label: "Barbell bench press, set 2, weight in kg".
+- A completed set's ✓ carries hidden text for screen readers ("Set 2, complete").
 - Visible focus outline in the accent color.
 
 ## Milestones
@@ -317,7 +315,7 @@ Dark only. Match the approved mockup.
 Each milestone ends with a short "how to test it" note for the owner.
 
 1. **Static screen.** Write `program.js` and render Day A from it, matching the design. No saving yet. Test by opening `index.html` through VS Code's Live Server (or `python -m http.server`) and on the phone over the local network.
-2. **Logging and rules.** Inputs, log/undo, active-set movement, block auto-open, rep colors, day picker.
+2. **Logging and rules.** Inputs, completing and undoing sets, rep colors, day picker.
 3. **Saving and history.** `storage.js`, resume an unfinished session, "Finish workout", last-time values from real history, prefill, ADD WEIGHT badge, rotation logic, wake lock. Add a temporary debug option to fill in fake history, for testing the badge and the colors.
 4. **Backup.** Settings screen with export and import.
 5. **PWA and deploy.**

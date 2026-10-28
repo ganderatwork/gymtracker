@@ -133,32 +133,31 @@ function relabelExtras(session) {
 function addExtras(entries, pairIndex) {
   const session = getOrStartSession();
   if (!Array.isArray(session.extras)) session.extras = [];
-  const programCount = PROGRAM[state.day].blocks.length;
 
   if (pairIndex !== null) {
     session.extras[pairIndex].exerciseIds.push(entries[0].id);
-    state.openBlockIndex = programCount + pairIndex;
   } else {
     session.extras.push({ block: "", exerciseIds: entries.map((e) => e.id) });
     relabelExtras(session);
-    state.openBlockIndex = programCount + session.extras.length - 1;
   }
   saveSessions(state.sessions);
   state.finishedMessage = null;
   render();
-  scrollOpenBlockIntoView();
+  // Scroll to the new (or newly paired) block so it's in view.
+  const changed = session.extras[pairIndex !== null ? pairIndex : session.extras.length - 1];
+  scrollToBlock(changed.block);
 }
 
-// Takes an extra exercise out of today's workout, including its logged sets (after asking).
+// Takes an extra exercise out of today's workout, including its completed sets (after asking).
 function removeExtraExercise(exerciseId) {
   const session = unfinishedSession(state.day);
   if (!session || !Array.isArray(session.extras)) return;
 
-  const loggedCount = session.sets.filter((s) => s.exerciseId === exerciseId).length;
-  if (loggedCount > 0) {
+  const doneCount = session.sets.filter((s) => s.exerciseId === exerciseId).length;
+  if (doneCount > 0) {
     const name = extraExercise(exerciseId, "").name;
     const ok = confirm(
-      "Remove " + name + "?\n\nIts " + loggedCount + " logged set" + (loggedCount === 1 ? "" : "s") +
+      "Remove " + name + "?\n\nIts " + doneCount + " completed set" + (doneCount === 1 ? "" : "s") +
         " from today will be deleted."
     );
     if (!ok) return;
@@ -179,10 +178,6 @@ function removeExtraExercise(exerciseId) {
     state.sessions = state.sessions.filter((s) => s !== session);
   }
   saveSessions(state.sessions);
-
-  if (state.openBlockIndex >= allBlocks().length) {
-    state.openBlockIndex = Math.max(0, nextUnfinishedBlock(-1));
-  }
   render();
 }
 

@@ -6,9 +6,8 @@ const state = {
   day: "A",
   // The day the app picked by itself at start. Any other choice shows the MANUAL tag.
   suggested: "A",
-  openBlockIndex: 0,
   pickerOpen: false,
-  // Typed-but-not-logged text per day, so it survives re-drawing: { weight: "62,5", reps: "8" }
+  // Text typed in the set fields per day, so it survives re-drawing: { weight: "62,5", reps: "8" }
   drafts: { A: {}, B: {}, C: {} },
   // Shown in place of the Finish button right after finishing.
   finishedMessage: null,
@@ -52,7 +51,7 @@ function suggestedDay() {
   return "A";
 }
 
-// A set logged today (in the current day's unfinished session), or null.
+// A complete set today (in the current day's unfinished session), or null.
 function findLoggedSet(exerciseId, setNumber) {
   const session = unfinishedSession(state.day);
   if (!session) return null;
@@ -186,43 +185,21 @@ function repRange(exercise) {
   return exercise.repMin + "–" + exercise.repMax;
 }
 
-// The order sets are done in a block: A1 set 1, A2 set 1, A1 set 2, ...
-// When one exercise has more sets, its extra sets come last.
-function blockSetOrder(block) {
-  const order = [];
-  const mostSets = Math.max(...block.exercises.map((ex) => ex.sets));
-  for (let setNumber = 1; setNumber <= mostSets; setNumber++) {
-    for (const exercise of block.exercises) {
-      if (setNumber <= exercise.sets) {
-        order.push({ exerciseId: exercise.id, setNumber: setNumber });
-      }
-    }
-  }
-  return order;
-}
-
 function countSets(block) {
   return block.exercises.reduce((sum, ex) => sum + ex.sets, 0);
 }
 
-function countLogged(block) {
-  return blockSetOrder(block).filter((s) => findLoggedSet(s.exerciseId, s.setNumber)).length;
-}
-
-// The first unlogged set in the block's alternating order, or null when all are logged.
-function findActiveSet(block) {
-  return blockSetOrder(block).find((s) => !findLoggedSet(s.exerciseId, s.setNumber)) || null;
-}
-
-// The next block (after `fromIndex`, wrapping around) that still has unlogged sets.
-// Returns -1 when every block is done.
-function nextUnfinishedBlock(fromIndex) {
-  const blocks = allBlocks();
-  for (let step = 1; step <= blocks.length; step++) {
-    const index = (fromIndex + step) % blocks.length;
-    if (countLogged(blocks[index]) < countSets(blocks[index])) return index;
+// How many of this exercise's sets are complete today.
+function countDone(exercise) {
+  let done = 0;
+  for (let setNumber = 1; setNumber <= exercise.sets; setNumber++) {
+    if (findLoggedSet(exercise.id, setNumber)) done++;
   }
-  return -1;
+  return done;
+}
+
+function countLogged(block) {
+  return block.exercises.reduce((sum, ex) => sum + countDone(ex), 0);
 }
 
 const CHEVRON_ICON =
@@ -294,20 +271,20 @@ function renderHeader() {
     ${pickerHtml}`;
 }
 
-function renderSetRow(exercise, setNumber, isActive) {
+function renderSetRow(exercise, setNumber) {
   const label = escapeHtml(exercise.name + ", set " + setNumber);
   const key = setKey(exercise.id, setNumber);
   const loggedSet = findLoggedSet(exercise.id, setNumber);
   const draft = state.drafts[state.day][key] || {};
   const prefill = prefillWeight(exercise, setNumber);
 
-  // Logged set: its saved numbers (read-only). Otherwise: what was typed, or the prefill.
+  // What you typed wins; otherwise the saved set; otherwise the weight prefill.
   let weightText = prefill === null ? "" : String(prefill);
-  if (draft.weight !== undefined) weightText = draft.weight;
   if (loggedSet) weightText = String(loggedSet.weight);
-  const repsText = loggedSet ? String(loggedSet.reps) : draft.reps || "";
+  if (draft.weight !== undefined) weightText = draft.weight;
+  let repsText = loggedSet ? String(loggedSet.reps) : "";
+  if (draft.reps !== undefined) repsText = draft.reps;
   const colorClass = repsClass(parseReps(repsText), exercise);
-  const readonly = loggedSet ? "readonly" : "";
 
   const last = lastTimeSet(exercise, setNumber);
   let lastText = "—";
@@ -317,24 +294,30 @@ function renderSetRow(exercise, setNumber, isActive) {
     lastClass = "set-last " + repsClass(last.reps, exercise);
   }
 
-  let rowClass = "set-row set-grid";
-  if (isActive) rowClass += " active";
-  if (loggedSet) rowClass += " logged";
-
   return `
-    <div class="${rowClass}">
-      <span class="set-num">${setNumber}</span>
+    <div class="set-row set-grid${loggedSet ? " complete" : ""}" data-row="${key}">
+      <span class="set-num">${renderSetNumber(setNumber, Boolean(loggedSet))}</span>
       <span class="${lastClass}">${lastText}</span>
-      <input class="set-input" type="text" inputmode="decimal" autocomplete="off" ${readonly}
+      <input class="set-input" type="text" inputmode="decimal" autocomplete="off"
         data-key="${key}" data-field="weight" value="${escapeHtml(weightText)}"
         aria-label="${label}, weight in kg" />
-      <input class="set-input ${colorClass}" type="text" inputmode="numeric" autocomplete="off" ${readonly}
+      <input class="set-input ${colorClass}" type="text" inputmode="numeric" autocomplete="off"
         data-key="${key}" data-field="reps" value="${escapeHtml(repsText)}"
         placeholder="–" aria-label="${label}, reps" />
-      <button class="log-btn" type="button" data-exercise="${exercise.id}" data-set="${setNumber}"
-        aria-pressed="${Boolean(loggedSet)}"
-        aria-label="${loggedSet ? "Undo" : "Log"} ${label}">${CHECK_ICON}</button>
     </div>`;
+}
+
+// The set number, or a ✓ when the set is complete (with hidden text for screen readers).
+function renderSetNumber(setNumber, complete) {
+  if (!complete) return String(setNumber);
+  return CHECK_ICON + `<span class="sr-only">Set ${setNumber}, complete</span>`;
+}
+
+// "1/3" on the card, green once every set is complete.
+function renderCardCount(exercise) {
+  const done = countDone(exercise);
+  const allDone = done === exercise.sets;
+  return `<span class="card-count${allDone ? " done" : ""}">${done}/${exercise.sets}</span>`;
 }
 
 // The ADD WEIGHT badge. "Earned today" wins over the others.
@@ -352,14 +335,10 @@ function renderBadge(exercise) {
   return `<p class="badge"><span class="badge-label">Add weight</span> ${text}</p>`;
 }
 
-function renderExerciseCard(exercise, activeSet) {
+function renderExerciseCard(exercise) {
   let rowsHtml = "";
   for (let setNumber = 1; setNumber <= exercise.sets; setNumber++) {
-    const isActive =
-      activeSet !== null &&
-      activeSet.exerciseId === exercise.id &&
-      activeSet.setNumber === setNumber;
-    rowsHtml += renderSetRow(exercise, setNumber, isActive);
+    rowsHtml += renderSetRow(exercise, setNumber);
   }
 
   // Extras: a Remove button, and a PROGRAM tag when "last time" is a ballpark from the program.
@@ -370,28 +349,30 @@ function renderExerciseCard(exercise, activeSet) {
   const tagHtml = lastTimeInfo(exercise).programTag ? '<span class="program-tag">Program</span>' : "";
 
   return `
-    <section class="card">
+    <section class="card" data-card="${escapeHtml(exercise.id)}">
       <div class="card-head">
         <div class="card-slot">${exercise.slot}</div>
         ${removeHtml}
       </div>
       <h2 class="card-name">${escapeHtml(exercise.name)}</h2>
-      <div class="card-meta">${exercise.sets} × ${repRange(exercise)} ${tagHtml}</div>
-      ${renderBadge(exercise)}
+      <div class="card-meta">
+        <span>${exercise.sets} × ${repRange(exercise)} ${tagHtml}</span>
+        <span class="card-count-slot">${renderCardCount(exercise)}</span>
+      </div>
+      <div class="card-badge">${renderBadge(exercise)}</div>
       <div class="col-heads set-grid">
         <span>Set</span>
         <span>Last time</span>
         <span>Kg</span>
         <span>Reps</span>
-        <span></span>
       </div>
       ${rowsHtml}
     </section>`;
 }
 
-function renderOpenBlock(block, index) {
-  const activeSet = findActiveSet(block);
-  const cardsHtml = block.exercises.map((ex) => renderExerciseCard(ex, activeSet)).join("");
+// Every block is always open: a bordered panel with its header and exercise cards.
+function renderBlock(block, index) {
+  const cardsHtml = block.exercises.map(renderExerciseCard).join("");
   const isPair = block.exercises.length === 2;
   const extraIndex = index - PROGRAM[state.day].blocks.length;
 
@@ -402,7 +383,7 @@ function renderOpenBlock(block, index) {
       : "";
 
   return `
-    <div class="block-open">
+    <div class="block" data-block="${block.letter}">
       <div class="block-head">
         <span class="block-label">Block ${block.letter}</span>
         ${isPair ? '<span class="block-mode">Alternate</span>' : ""}
@@ -412,16 +393,14 @@ function renderOpenBlock(block, index) {
     </div>`;
 }
 
-function renderCollapsedBlock(block, index) {
-  const names = block.exercises.map((ex) => escapeHtml(ex.name)).join(" / ");
-  const done = countLogged(block) === countSets(block);
-  return `
-    <button class="block-collapsed${done ? " done" : ""}" type="button" data-block="${index}"
-      aria-label="Open block ${block.letter}: ${names}">
-      <span class="block-collapsed-letter">${block.letter}</span>
-      <span class="block-collapsed-names">${names}</span>
-      <span class="block-collapsed-count">${countLogged(block)}/${countSets(block)}</span>
-    </button>`;
+function renderFinishArea() {
+  const session = unfinishedSession(state.day);
+  if (state.finishedMessage && !session) {
+    return `<p class="finish-done" role="status">${state.finishedMessage}</p>`;
+  }
+  // A session with zero complete sets cannot be finished.
+  const canFinish = session && session.sets.length > 0;
+  return `<button class="finish-btn" type="button" ${canFinish ? "" : "disabled"}>Finish workout</button>`;
 }
 
 function renderContent() {
@@ -432,31 +411,17 @@ function renderContent() {
 
   const blocks = allBlocks();
   const programCount = PROGRAM[state.day].blocks.length;
-  const renderBlock = (block, index) =>
-    index === state.openBlockIndex ? renderOpenBlock(block, index) : renderCollapsedBlock(block, index);
   const blocksHtml = blocks.slice(0, programCount).map(renderBlock).join("");
   const extraBlocksHtml = blocks
     .slice(programCount)
     .map((block, i) => renderBlock(block, programCount + i))
     .join("");
 
-  const session = unfinishedSession(state.day);
-  let finishHtml;
-  if (state.finishedMessage && !session) {
-    finishHtml = `<p class="finish-done" role="status">${state.finishedMessage}</p>`;
-  } else {
-    // A session with zero logged sets cannot be finished.
-    const canFinish = session && session.sets.length > 0;
-    finishHtml = `<button class="finish-btn" type="button" ${canFinish ? "" : "disabled"}>Finish workout</button>`;
-  }
-
-  const warningHtml = renderWarning();
-
   document.getElementById("content").innerHTML = `
-    ${warningHtml}
+    ${renderWarning()}
     ${blocksHtml}
     ${renderExtrasSection(extraBlocksHtml)}
-    ${finishHtml}`;
+    <div id="finish-area">${renderFinishArea()}</div>`;
 }
 
 function renderWarning() {
@@ -547,91 +512,75 @@ async function updateWakeLock() {
 
 document.addEventListener("visibilitychange", updateWakeLock);
 
-function scrollOpenBlockIntoView() {
-  const openBlock = document.querySelector(".block-open");
-  if (openBlock) openBlock.scrollIntoView({ block: "start" });
+function scrollToBlock(letter) {
+  const block = document.querySelector(`.block[data-block="${letter}"]`);
+  if (block) block.scrollIntoView({ block: "start" });
 }
 
-function vibrate() {
-  try {
-    navigator.vibrate(30);
-  } catch (error) {
-    // Not supported on this device; ignore.
-  }
-}
+// Saves one set from its two fields: complete (both valid) → add or update it; otherwise remove it.
+function saveSetFromFields(exerciseId, setNumber, weight, reps) {
+  const existing = findLoggedSet(exerciseId, setNumber);
+  const complete = weight !== null && reps !== null;
 
-// Highlights an input that has a missing or invalid value and puts the cursor in it.
-function flagInput(key, field) {
-  const input = document.querySelector(`.set-input[data-key="${key}"][data-field="${field}"]`);
-  if (!input) return;
-  input.setAttribute("aria-invalid", "true");
-  input.focus();
-}
-
-// Logs a set, or undoes it if it was already logged. Saves right away.
-function toggleLog(exerciseId, setNumber) {
-  const key = setKey(exerciseId, setNumber);
-  const exercise = findExercise(exerciseId);
-  const drafts = state.drafts[state.day];
-  const loggedSet = findLoggedSet(exerciseId, setNumber);
-  let session = unfinishedSession(state.day);
-
-  if (loggedSet) {
-    // Undo: put the numbers back in the inputs so they can be corrected.
-    drafts[key] = { weight: String(loggedSet.weight), reps: String(loggedSet.reps) };
-    session.sets = session.sets.filter((s) => s !== loggedSet);
+  if (complete && existing) {
+    existing.weight = weight;
+    existing.reps = reps;
+  } else if (complete) {
+    getOrStartSession().sets.push({
+      exerciseId: exerciseId,
+      setNumber: setNumber,
+      weight: weight,
+      reps: reps,
+      loggedAt: new Date().toISOString(),
+    });
+  } else if (existing) {
+    const session = unfinishedSession(state.day);
+    session.sets = session.sets.filter((s) => s !== existing);
     // A session with nothing left in it is removed, so it isn't resumed later.
     if (session.sets.length === 0 && !(session.extras && session.extras.length > 0)) {
       state.sessions = state.sessions.filter((s) => s !== session);
     }
-    saveSessions(state.sessions);
-    render();
-    return;
+  } else {
+    return; // still incomplete, nothing to save
   }
-
-  // Empty weight → the prefill. Empty reps → last time's reps for this set.
-  const draft = drafts[key] || {};
-  let weightText = draft.weight === undefined ? "" : draft.weight;
-  if (weightText.trim() === "") {
-    const prefill = prefillWeight(exercise, setNumber);
-    weightText = prefill === null ? "" : String(prefill);
-  }
-  let repsText = draft.reps || "";
-  if (repsText.trim() === "") {
-    const last = lastTimeSet(exercise, setNumber);
-    repsText = last ? String(last.reps) : "";
-  }
-
-  const weight = parseWeight(weightText);
-  const reps = parseReps(repsText);
-  if (weight === null) return flagInput(key, "weight");
-  if (reps === null) return flagInput(key, "reps");
-
-  session = getOrStartSession();
-  session.sets.push({
-    exerciseId: exerciseId,
-    setNumber: setNumber,
-    weight: weight,
-    reps: reps,
-    loggedAt: new Date().toISOString(),
-  });
   saveSessions(state.sessions);
-  delete drafts[key];
-  vibrate();
+}
 
-  // When the open block is complete, open the next unfinished one.
-  const openBlock = allBlocks()[state.openBlockIndex];
-  let movedToNextBlock = false;
-  if (countLogged(openBlock) === countSets(openBlock)) {
-    const next = nextUnfinishedBlock(state.openBlockIndex);
-    if (next !== -1) {
-      state.openBlockIndex = next;
-      movedToNextBlock = true;
-    }
-  }
+// Runs on every keystroke in a set field.
+// Only the parts that can change are updated, so the keyboard and cursor stay where they are.
+function onSetInput(input) {
+  const key = input.dataset.key;
+  const exerciseId = key.split("#")[0];
+  const setNumber = Number(key.split("#")[1]);
+  const exercise = findExercise(exerciseId);
 
-  render();
-  if (movedToNextBlock) scrollOpenBlockIntoView();
+  const drafts = state.drafts[state.day];
+  if (!drafts[key]) drafts[key] = {};
+  drafts[key][input.dataset.field] = input.value;
+
+  // Read both fields: the other one may hold the prefill rather than typed text.
+  const row = input.closest(".set-row");
+  const weight = parseWeight(row.querySelector('[data-field="weight"]').value);
+  const reps = parseReps(row.querySelector('[data-field="reps"]').value);
+  saveSetFromFields(exerciseId, setNumber, weight, reps);
+
+  const complete = Boolean(findLoggedSet(exerciseId, setNumber));
+  row.classList.toggle("complete", complete);
+  row.querySelector(".set-num").innerHTML = renderSetNumber(setNumber, complete);
+
+  const repsInput = row.querySelector('[data-field="reps"]');
+  repsInput.classList.remove("reps-low", "reps-top");
+  const colorClass = repsClass(reps, exercise);
+  if (colorClass) repsInput.classList.add(colorClass);
+
+  const card = row.closest(".card");
+  card.querySelector(".card-count-slot").innerHTML = renderCardCount(exercise);
+  card.querySelector(".card-badge").innerHTML = renderBadge(exercise);
+
+  if (complete) state.finishedMessage = null;
+  document.getElementById("finish-area").innerHTML = renderFinishArea();
+  renderHeader();
+  updateWakeLock();
 }
 
 async function finishWorkout() {
@@ -642,7 +591,6 @@ async function finishWorkout() {
   const saved = saveSessions(state.sessions);
   state.finishedMessage = saved ? "Saved · syncing…" : null;
   state.drafts[state.day] = {};
-  state.openBlockIndex = 0;
   render();
 
   const message = document.querySelector(".finish-done");
@@ -684,7 +632,6 @@ function refreshAfterDataChange() {
   state.suggested = suggestedDay();
   if (!state.sessions.some((s) => !s.finishedAt)) {
     state.day = state.suggested;
-    state.openBlockIndex = Math.max(0, nextUnfinishedBlock(-1));
   }
 }
 
@@ -822,11 +769,10 @@ document.getElementById("header").addEventListener("click", (event) => {
   const option = event.target.closest(".day-option");
   if (option) {
     state.day = option.dataset.day;
-    // Open the first block with sets left (or block A if all are done).
-    state.openBlockIndex = Math.max(0, nextUnfinishedBlock(-1));
     state.pickerOpen = false;
     state.finishedMessage = null;
     render();
+    content.scrollTop = 0;
     return;
   }
   if (event.target.closest(".day-toggle")) {
@@ -847,11 +793,6 @@ content.addEventListener("click", (event) => {
     if (action === "restore") restoreFromSheet();
     return;
   }
-  const logButton = event.target.closest(".log-btn");
-  if (logButton) {
-    toggleLog(logButton.dataset.exercise, Number(logButton.dataset.set));
-    return;
-  }
   if (event.target.closest(".finish-btn")) {
     finishWorkout();
     return;
@@ -868,37 +809,16 @@ content.addEventListener("click", (event) => {
   const removeButton = event.target.closest(".remove-btn");
   if (removeButton) {
     removeExtraExercise(removeButton.dataset.remove);
-    return;
-  }
-  const collapsed = event.target.closest(".block-collapsed");
-  if (collapsed) {
-    state.openBlockIndex = Number(collapsed.dataset.block);
-    renderContent();
-    scrollOpenBlockIntoView();
   }
 });
 
-// Remember typed text, and recolor the reps input while typing.
 content.addEventListener("input", (event) => {
   const input = event.target;
   if (input.id === "script-url" || input.id === "secret-key") {
     saveSyncFields();
     return;
   }
-  if (!input.classList.contains("set-input")) return;
-
-  const drafts = state.drafts[state.day];
-  const key = input.dataset.key;
-  if (!drafts[key]) drafts[key] = {};
-  drafts[key][input.dataset.field] = input.value;
-  input.removeAttribute("aria-invalid");
-
-  if (input.dataset.field === "reps") {
-    const exercise = findExercise(key.split("#")[0]);
-    input.classList.remove("reps-low", "reps-top");
-    const colorClass = repsClass(parseReps(input.value), exercise);
-    if (colorClass) input.classList.add(colorClass);
-  }
+  if (input.classList.contains("set-input")) onSetInput(input);
 });
 
 // The hidden file picker for "Import backup".
@@ -960,7 +880,6 @@ const inProgress = state.sessions
   .filter((s) => !s.finishedAt)
   .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))[0];
 state.day = inProgress ? inProgress.day : state.suggested;
-state.openBlockIndex = Math.max(0, nextUnfinishedBlock(-1));
 
 render();
 registerServiceWorker();
