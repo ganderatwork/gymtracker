@@ -101,7 +101,6 @@ function exerciseToRow(entry) {
     sets: entry.sets,
     lo: entry.lo,
     hi: entry.hi,
-    inc: entry.inc,
     sourceProgramIds: entry.sourceProgramIds.join(","),
     createdAt: entry.createdAt,
   };
@@ -222,7 +221,6 @@ function rowsToLibrary(rows) {
       sets: Number(row.sets),
       lo: Number(row.lo),
       hi: Number(row.hi),
-      inc: Number(row.inc),
       sourceProgramIds: String(row.sourceProgramIds || "").split(",").filter(Boolean),
       createdAt: String(row.createdAt || ""),
     }))

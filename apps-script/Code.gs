@@ -19,6 +19,8 @@ const SETS_COLUMNS = [
 ];
 
 const EXERCISES_SHEET = "exercises";
+// "inc" (weight step) is no longer used by the app and is left blank. The column stays so
+// Sheets created earlier keep the same column layout.
 const EXERCISE_COLUMNS = ["id", "name", "sets", "lo", "hi", "inc", "sourceProgramIds", "createdAt"];
 
 // Every request from the app arrives here as a POST with a JSON body: { key, action, ... }.

@@ -59,7 +59,8 @@ function requestPersistentStorage() {
 
 const EXERCISES_KEY = "tt.exercises";
 
-// True if `e` looks like a library entry: { id, name, sets, lo, hi, inc, sourceProgramIds, createdAt }.
+// True if `e` looks like a library entry: { id, name, sets, lo, hi, sourceProgramIds, createdAt }.
+// Older entries may still carry an unused `inc` (weight step); that is simply ignored.
 function isValidLibraryExercise(e) {
   return Boolean(
     e &&
@@ -69,7 +70,6 @@ function isValidLibraryExercise(e) {
       Number.isFinite(e.sets) &&
       Number.isFinite(e.lo) &&
       Number.isFinite(e.hi) &&
-      Number.isFinite(e.inc) &&
       Array.isArray(e.sourceProgramIds)
   );
 }

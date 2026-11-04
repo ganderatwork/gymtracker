@@ -18,7 +18,7 @@ function sameName(a, b) {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
-// Every program exercise once per name: { name, sets, lo, hi, inc, ids }.
+// Every program exercise once per name: { name, sets, lo, hi, ids }.
 // When a name is on two days (e.g. Cable lateral raise), the first one found gives the numbers.
 function programExercisesByName() {
   const byName = new Map();
@@ -27,7 +27,7 @@ function programExercisesByName() {
       for (const ex of block.exercises) {
         const key = ex.name.toLowerCase();
         if (!byName.has(key)) {
-          byName.set(key, { name: ex.name, sets: ex.sets, lo: ex.repMin, hi: ex.repMax, inc: ex.inc, ids: [] });
+          byName.set(key, { name: ex.name, sets: ex.sets, lo: ex.repMin, hi: ex.repMax, ids: [] });
         }
         byName.get(key).ids.push(ex.id);
       }
@@ -50,7 +50,6 @@ function addToLibrary(fields) {
     sets: fields.sets,
     lo: fields.lo,
     hi: fields.hi,
-    inc: fields.inc,
     sourceProgramIds: programMatch ? programMatch.ids.slice() : [],
     createdAt: new Date().toISOString(),
   };
@@ -63,7 +62,7 @@ function addToLibrary(fields) {
 // The library entry for a program exercise: the existing one, or a new one with the program's numbers.
 function libraryEntryForProgram(lowerName) {
   const p = programExercisesByName().get(lowerName);
-  return findLibraryByName(p.name) || addToLibrary({ name: p.name, sets: p.sets, lo: p.lo, hi: p.hi, inc: p.inc });
+  return findLibraryByName(p.name) || addToLibrary({ name: p.name, sets: p.sets, lo: p.lo, hi: p.hi });
 }
 
 // When this exercise was last logged (or created, if never). Sorts "Your exercises".
@@ -95,7 +94,7 @@ function libraryEntryById(id) {
 // A library entry in the same shape as a program exercise, so app.js can treat both alike.
 function extraExercise(id, slot) {
   // If the entry is somehow missing, show the id with default numbers instead of crashing.
-  const entry = libraryEntryById(id) || { name: id, sets: 3, lo: 10, hi: 12, inc: 2.5, sourceProgramIds: [] };
+  const entry = libraryEntryById(id) || { name: id, sets: 3, lo: 10, hi: 12, sourceProgramIds: [] };
   return {
     id: id,
     slot: slot,
@@ -103,7 +102,6 @@ function extraExercise(id, slot) {
     sets: entry.sets,
     repMin: entry.lo,
     repMax: entry.hi,
-    inc: entry.inc,
     sourceProgramIds: entry.sourceProgramIds,
     isExtra: true,
   };
@@ -365,9 +363,6 @@ function renderSheetForm() {
         <label class="field-label">Reps to
           <input id="new-hi" class="text-input" type="text" inputmode="numeric" value="12" />
         </label>
-        <label class="field-label">Kg step
-          <input id="new-inc" class="text-input" type="text" inputmode="decimal" value="2.5" />
-        </label>
       </div>
       <p id="new-error" class="settings-message error" role="alert"></p>
       <button class="action-btn" type="button" data-sheet-action="save-new">Save</button>
@@ -397,7 +392,6 @@ function saveNewExercise() {
   const sets = parseReps(value("new-sets"));
   const lo = parseReps(value("new-lo"));
   const hi = parseReps(value("new-hi"));
-  const inc = parseWeight(value("new-inc"));
 
   let error = null;
   if (name === "") error = "Give the exercise a name.";
@@ -405,13 +399,12 @@ function saveNewExercise() {
   else if (namesInTodaysWorkout().has(name.toLowerCase())) error = "\"" + name + "\" is already in today's workout.";
   else if (sets === null || sets > 6) error = "Sets must be a number from 1 to 6.";
   else if (lo === null || hi === null || hi < lo) error = "Reps: enter a range like 10 to 12.";
-  else if (inc === null || inc === 0) error = "Kg step must be more than 0.";
   if (error) {
     document.getElementById("new-error").textContent = error;
     return;
   }
 
-  const entry = addToLibrary({ name: name, sets: sets, lo: lo, hi: hi, inc: inc });
+  const entry = addToLibrary({ name: name, sets: sets, lo: lo, hi: hi });
   state.sheet.formOpen = false;
   state.sheet.query = "";
   if (state.sheet.selected.length < state.sheet.maxSelect) state.sheet.selected.push("lib:" + entry.id);

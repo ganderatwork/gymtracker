@@ -53,18 +53,18 @@
 
     // Extras. Library entries with these names are reused if they already exist.
     const library = loadExercises();
-    const crunch = ensureEntry(library, "Cable crunch", 3, 12, 15, 2.5, []);
-    const pecDeck = ensureEntry(library, "Pec deck", 2, 12, 15, 2.5, ["C-pec-deck"]);
-    const facePull = ensureEntry(library, "Face pull", 3, 12, 15, 2.5, ["B-face-pull"]);
-    const triceps = ensureEntry(library, "Overhead cable triceps extension", 2, 10, 12, 2.5, ["A-oh-triceps"]);
+    const crunch = ensureEntry(library, "Cable crunch", 3, 12, 15, []);
+    const pecDeck = ensureEntry(library, "Pec deck", 3, 12, 15, ["C-pec-deck"]);
+    const facePull = ensureEntry(library, "Face pull", 3, 12, 15, ["B-face-pull"]);
+    const triceps = ensureEntry(library, "Overhead cable triceps extension", 3, 10, 12, ["A-oh-triceps"]);
     saveExercises(library);
 
     // Recent extra (7 days): Pec deck on Monday uses its own history, no PROGRAM tag.
-    addExtra(a, "E", pecDeck, 30, [15, 13]);
+    addExtra(a, "E", pecDeck, 30, [15, 13, 13]);
     // Custom extra at the top of its range: Cable crunch shows ADD WEIGHT.
     addExtra(c, "E", crunch, 40, [15, 15, 15]);
     // Beats Monday's triceps (55 kg × 12 is the program's weight and top reps):
-    // Monday's D2 card shows "Top reps as an extra. Now 57.5 kg."
+    // Monday's D2 card shows "Top reps as an extra. Go heavier today." with empty weights.
     addExtra(c, "F", triceps, 55, [12]);
     // Old extra (40 days): Face pull falls back to the program's numbers and shows the PROGRAM tag.
     addExtra(oldA, "E", facePull, 25, [12, 12, 12]);
@@ -74,7 +74,7 @@
     location.reload();
   }
 
-  function ensureEntry(library, name, sets, lo, hi, inc, sourceProgramIds) {
+  function ensureEntry(library, name, sets, lo, hi, sourceProgramIds) {
     const existing = library.find((e) => e.name.toLowerCase() === name.toLowerCase());
     if (existing) return existing;
     const entry = {
@@ -83,7 +83,6 @@
       sets: sets,
       lo: lo,
       hi: hi,
-      inc: inc,
       sourceProgramIds: sourceProgramIds,
       createdAt: new Date(Date.now() - 60 * DAY_MS).toISOString(),
     };

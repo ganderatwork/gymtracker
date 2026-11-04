@@ -34,48 +34,48 @@ Each day has 4 blocks. Each block has 2 exercises, done as alternating sets: A1 
 
 Give every exercise slot a stable `id` (e.g. `A-bench`). History is looked up by this id, so never reuse an id for a different exercise. The same movement on two days gets two ids (e.g. `A-cable-lateral` and `C-cable-lateral`).
 
-`inc` is the weight step in kg used when the app suggests an increase.
+There are no per-exercise weight steps: when the app says to add weight, the user picks the new weight.
 
 The letters A/B/C are internal keys only (used in ids and the data model). The UI never shows "Day A/B/C"; it shows the weekday name (`weekday` in `program.js`, e.g. "Monday") and the subtitle.
 
 ### Day A (Monday): heavy press and hinge
 
-| Slot | Exercise | Sets | Reps | inc |
-|---|---|---|---|---|
-| A1 | Barbell bench press | 3 | 6–8 | 2.5 |
-| A2 | Chest-supported row | 3 | 8–10 | 2 |
-| B1 | Romanian deadlift | 3 | 6–8 | 2.5 |
-| B2 | Lat pulldown (neutral or medium grip) | 3 | 8–12 | 2.5 |
-| C1 | Standing barbell press | 2 | 6–10 | 2.5 |
-| C2 | Cable lateral raise | 3 | 12–15 | 1.25 |
-| D1 | EZ-bar curl | 2 | 10–12 | 2.5 |
-| D2 | Overhead cable triceps extension | 2 | 10–12 | 2.5 |
+| Slot | Exercise | Sets | Reps |
+|---|---|---|---|
+| A1 | Barbell bench press | 3 | 6–8 |
+| A2 | Chest-supported row | 3 | 8–10 |
+| B1 | Romanian deadlift | 3 | 6–8 |
+| B2 | Lat pulldown (neutral or medium grip) | 3 | 8–12 |
+| C1 | Standing barbell press | 3 | 6–10 |
+| C2 | EZ-bar curl | 3 | 10–12 |
+| D1 | Cable lateral raise | 3 | 12–15 |
+| D2 | Overhead cable triceps extension | 3 | 10–12 |
 
 ### Day B (Wednesday): moderate reps
 
-| Slot | Exercise | Sets | Reps | inc |
-|---|---|---|---|---|
-| A1 | Incline DB press (30°) | 3 | 8–12 | 2 |
-| A2 | Wide-grip lat pulldown | 3 | 8–12 | 2.5 |
-| B1 | Leg press (feet high and wide) | 3 | 10–12 | 5 |
-| B2 | Face pull | 3 | 12–15 | 2.5 |
-| C1 | Cable fly (mid height) | 3 | 12–15 | 2.5 |
-| C2 | DB lateral raise | 3 | 12–20 | 2 |
-| D1 | Seated leg curl | 3 | 10–12 | 2.5 |
-| D2 | Hammer curl | 2 | 10–12 | 2 |
+| Slot | Exercise | Sets | Reps |
+|---|---|---|---|
+| A1 | Incline DB press (30°) | 3 | 8–12 |
+| A2 | Wide-grip lat pulldown | 3 | 8–12 |
+| B1 | Leg press (feet high and wide) | 3 | 10–12 |
+| B2 | Face pull | 3 | 12–15 |
+| C1 | Cable fly (mid height) | 3 | 12–15 |
+| C2 | DB lateral raise | 3 | 12–20 |
+| D1 | Seated leg curl | 3 | 10–12 |
+| D2 | Hammer curl | 3 | 10–12 |
 
 ### Day C (Friday): machines and higher reps
 
-| Slot | Exercise | Sets | Reps | inc |
-|---|---|---|---|---|
-| A1 | Low-incline Smith press | 3 | 6–10 | 2.5 |
-| A2 | Single-arm cable row | 3 | 10–12 | 2.5 |
-| B1 | Leg extension | 3 | 12–15 | 2.5 |
-| B2 | Reverse pec deck | 3 | 12–20 | 2.5 |
-| C1 | Pec deck | 2 | 12–15 | 2.5 |
-| C2 | Cable lateral raise | 4 | 12–20 | 1.25 |
-| D1 | Incline DB curl | 2 | 10–12 | 2 |
-| D2 | Triceps pushdown | 2 | 10–12 | 2.5 |
+| Slot | Exercise | Sets | Reps |
+|---|---|---|---|
+| A1 | Low-incline Smith press | 3 | 6–10 |
+| A2 | Single-arm cable row | 3 | 10–12 |
+| B1 | Leg extension | 3 | 12–15 |
+| B2 | Reverse pec deck | 3 | 12–20 |
+| C1 | Pec deck | 3 | 12–15 |
+| C2 | Cable lateral raise | 4 | 12–20 |
+| D1 | Incline DB curl | 3 | 10–12 |
+| D2 | Triceps pushdown | 3 | 10–12 |
 
 ## Behavior
 
@@ -114,7 +114,8 @@ The letters A/B/C are internal keys only (used in ids and the data model). The U
 
 ### Inputs and logging
 
-- **Weight input prefill:** the weight logged for the same set number last time. If that set is missing, use last time's first set. If the exercise earned an increase last time, prefill last weight + `inc`. No history → empty. The prefill is a real value, so a set is usually complete as soon as reps are typed.
+- **Weight input prefill:** the weight logged for the same set number last time. If that set is missing, use last time's first set. If the ADD WEIGHT badge shows "Top reps last time" or "Top reps as an extra", leave the weight empty instead (the user chooses the new weight). No history → empty. The prefill is a real value, so a set is usually complete as soon as reps are typed.
+- **Set 1's weight carries over:** when the user leaves set 1's weight box after changing it, the new weight is copied into the exercise's later sets whose weight is empty or still equals set 1's previous weight (so sets changed by hand keep theirs). Leaving set 1 empty copies nothing. Later weights stay editable.
 - **Reps input** starts empty, with placeholder "–".
 - Both inputs use `type="text"` with `inputmode="decimal"` (weight) or `inputmode="numeric"` (reps), so Android opens the number keypad. Accept a comma or a dot as the decimal separator.
 - **A set is complete** when both fields hold valid numbers: weight ≥ 0, reps a whole number ≥ 1.
@@ -140,19 +141,19 @@ Color is never the only signal: the ✓ and the badge text carry the same meanin
 
 Shown on an exercise card when either condition holds:
 
-1. **Earned last time:** every logged set last time reached the top of the range, and at least one set was logged. The text reads "Top reps last time. Now X kg.", where X is the raised prefill weight.
+1. **Earned last time:** every logged set last time reached the top of the range, and at least one set was logged. The text reads "Top reps last time. Go heavier today." The weight fields start empty.
 2. **Earned today:** every set logged today reached the top of the range. The text reads "All sets at top today. Go heavier next time." This takes priority if both are true.
-3. **Pushed by an extra** (program exercises only): see "Extra sets that push the program" below. The text reads "Top reps as an extra. Now X kg.", and the weight prefill is raised by `inc` exactly like "Earned last time". "Earned today" still wins.
+3. **Pushed by an extra** (program exercises only): see "Extra sets that push the program" below. The text reads "Top reps as an extra. Go heavier today.", and the weight fields start empty exactly like "Earned last time". "Earned today" still wins.
 
 ### Extra exercises
 
 After the program's last block, the user can add extra blocks. Each holds one or two exercises, done as alternating sets exactly like program blocks.
 
-- **Exercise library:** `tt.exercises` in localStorage, an array of `{ id, name, sets, lo, hi, inc, sourceProgramIds, createdAt }`.
+- **Exercise library:** `tt.exercises` in localStorage, an array of `{ id, name, sets, lo, hi, sourceProgramIds, createdAt }`. (Older entries may still have an unused `inc`; ignore it.)
   - Ids are `x-` plus a slug of the name (`x-cable-crunch`), with `-2`, `-3` if taken. Never reuse or change an id.
   - `sourceProgramIds` lists the program slot ids with the same name (e.g. `A-cable-lateral` and `C-cable-lateral`), or is empty for custom exercises. A new exercise typed with a program exercise's name is linked the same way.
-  - Picking a program exercise creates (or reuses) a library entry with its own `x-` id and the program's sets, range and inc (the first day it appears on wins). Program ids and program history are never touched.
-  - New exercise defaults: 3 sets, 10–12 reps, inc 2.5. Name required and unique (case-insensitive).
+  - Picking a program exercise creates (or reuses) a library entry with its own `x-` id and the program's sets and range (the first day it appears on wins). Program ids and program history are never touched.
+  - New exercise defaults: 3 sets, 10–12 reps. Name required and unique (case-insensitive).
 - **UI:**
   - After the last program block: an "EXTRAS" label, the extra blocks, then a dashed "+ Add exercises" button (52px).
   - Extra blocks look and behave like program blocks: always open, letters E, F, … with slots E1/E2, "Alternate" only for pairs. After adding a block (or pairing), the page scrolls to it.
@@ -165,7 +166,7 @@ After the program's last block, the user can add extra blocks. Each holds one or
   2. **Program ballpark** (program-linked only): the sets for any id in `sourceProgramIds` in the most recent finished session that has one of them. Show a small muted "PROGRAM" tag next to the rep range.
   3. **Nothing:** "—", no prefill.
 
-  With source 1 or 2, prefill, filling empty fields on log, rep colors and both ADD WEIGHT rules work exactly as for program exercises, using the library entry's lo/hi/inc. The 30-day rule only affects what is displayed; never delete or hide stored data.
+  With source 1 or 2, prefill, filling empty fields on log, rep colors and both ADD WEIGHT rules work exactly as for program exercises, using the library entry's lo/hi. The 30-day rule only affects what is displayed; never delete or hide stored data.
 - **Extra sets that push the program:** for a program slot:
   - Its "last program session" is the most recent finished session of its day; its working weight is the heaviest set it logged there. No sets there → no push.
   - Take the most recent finished session where a library entry listing this slot in `sourceProgramIds` was logged. It must have finished at or after the slot's last program session.
@@ -220,7 +221,7 @@ Logged extra sets go into the same `sets` array as program sets.
 
 - **Sheet layout:**
   - Tab `sets`, one row per logged set. Columns: `sessionId, date, day, exerciseId, exerciseName, setNumber, weightKg, reps, loggedAt`. Extra sets use the library name in `exerciseName`.
-  - Tab `exercises`, the library. Columns: `id, name, sets, lo, hi, inc, sourceProgramIds, createdAt` (`sourceProgramIds` as a comma-separated string).
+  - Tab `exercises`, the library. Columns: `id, name, sets, lo, hi, inc, sourceProgramIds, createdAt` (`sourceProgramIds` as a comma-separated string; `inc` is no longer used and left blank, kept only so existing Sheets keep their column layout).
 - **Apps Script:**
   - Deployed as a web app: "Execute as: me", "Who has access: anyone".
   - The script stores the secret key in Script Properties (`SECRET_KEY`), never in the code.
@@ -252,7 +253,7 @@ Reached from a small gear icon button in the header. Contains:
 
 - **`manifest.webmanifest`:**
   - `name` and `short_name` "gymtracker".
-  - `start_url` "./", `scope` "./", `display` "standalone".
+  - `start_url` "./", `scope` "./", `display` "standalone", `orientation` "portrait".
   - `background_color` and `theme_color` `#0E1013`.
   - Icons 192 and 512, plus a maskable icon.
 - **Service worker (`sw.js`):**

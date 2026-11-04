@@ -111,17 +111,16 @@ function earnedToday(exercise) {
   return allAtTop(sets, exercise);
 }
 
-// Weight to pre-fill: same set last time (or last time's first set), plus `inc` if earned
-// (last time, or by an extra that pushed this program exercise). Returns null when there is no history.
+// Weight to pre-fill: same set last time (or last time's first set).
+// Returns null (empty field) when there is no history, or when it's time to add weight:
+// then you pick the new weight yourself.
 function prefillWeight(exercise, setNumber) {
   const sets = lastTimeSets(exercise);
   if (sets.length === 0) return null;
+  if (earnedLastTime(exercise) || pushedByExtra(exercise)) return null;
   const sameSet = sets.find((s) => s.setNumber === setNumber);
   const firstSet = sets.reduce((a, b) => (b.setNumber < a.setNumber ? b : a));
-  const base = (sameSet || firstSet).weight;
-  if (!earnedLastTime(exercise) && !pushedByExtra(exercise)) return base;
-  // Rounding avoids results like 63.750000001.
-  return Math.round((base + exercise.inc) * 100) / 100;
+  return (sameSet || firstSet).weight;
 }
 
 // One text key per set, e.g. "A-bench#2".
@@ -326,9 +325,9 @@ function renderBadge(exercise) {
   if (earnedToday(exercise)) {
     text = "All sets at top today. Go heavier next time.";
   } else if (earnedLastTime(exercise)) {
-    text = "Top reps last time. Now " + prefillWeight(exercise, 1) + " kg.";
+    text = "Top reps last time. Go heavier today.";
   } else if (pushedByExtra(exercise)) {
-    text = "Top reps as an extra. Now " + prefillWeight(exercise, 1) + " kg.";
+    text = "Top reps as an extra. Go heavier today.";
   } else {
     return "";
   }
@@ -512,6 +511,15 @@ async function updateWakeLock() {
 
 document.addEventListener("visibilitychange", updateWakeLock);
 
+// ---------- Portrait only ----------
+// The installed app is locked to portrait by `orientation` in manifest.webmanifest.
+// This call does the same right away, before Chrome has picked up the new manifest.
+// It only works in the installed app, so in a normal browser tab it fails silently.
+function lockPortrait() {
+  if (!screen.orientation || !screen.orientation.lock) return;
+  screen.orientation.lock("portrait").catch(() => {});
+}
+
 function scrollToBlock(letter) {
   const block = document.querySelector(`.block[data-block="${letter}"]`);
   if (block) block.scrollIntoView({ block: "start" });
@@ -546,6 +554,62 @@ function saveSetFromFields(exerciseId, setNumber, weight, reps) {
   saveSessions(state.sessions);
 }
 
+// Saves one row from what's in its two fields, and updates that row's ✓ and reps color.
+function updateRow(row, exercise, setNumber) {
+  const weight = parseWeight(row.querySelector('[data-field="weight"]').value);
+  const reps = parseReps(row.querySelector('[data-field="reps"]').value);
+  saveSetFromFields(exercise.id, setNumber, weight, reps);
+
+  const complete = Boolean(findLoggedSet(exercise.id, setNumber));
+  row.classList.toggle("complete", complete);
+  row.querySelector(".set-num").innerHTML = renderSetNumber(setNumber, complete);
+
+  const repsInput = row.querySelector('[data-field="reps"]');
+  repsInput.classList.remove("reps-low", "reps-top");
+  const colorClass = repsClass(reps, exercise);
+  if (colorClass) repsInput.classList.add(colorClass);
+  return complete;
+}
+
+// Set 1's weight is copied to the later sets when you leave set 1's weight box, because you
+// usually use one weight for all sets. A later set only follows if its weight is empty or
+// equals what set 1 held before you edited it, so a set you changed by hand keeps its weight.
+// Leaving set 1 empty changes nothing.
+function copyWeightToLaterSets(set1Input) {
+  if (parseWeight(set1Input.value) === null) return;
+  const exercise = findExercise(set1Input.dataset.key.split("#")[0]);
+  // Set by the "focusin" listener when you tapped into the box.
+  const fromWeight = parseWeight(set1Input.dataset.before || "");
+  const card = set1Input.closest(".card");
+
+  const drafts = state.drafts[state.day];
+  for (let setNumber = 2; setNumber <= exercise.sets; setNumber++) {
+    const key = setKey(exercise.id, setNumber);
+    const row = card.querySelector(`[data-row="${key}"]`);
+    const weightInput = row.querySelector('[data-field="weight"]');
+    // Compared as numbers, so "62,5" and "62.5" count as the same.
+    const weight = parseWeight(weightInput.value);
+    if (weight !== null && weight !== fromWeight) continue;
+
+    if (!drafts[key]) drafts[key] = {};
+    drafts[key].weight = set1Input.value;
+    weightInput.value = set1Input.value;
+    // If reps were already typed, this set may now be complete.
+    updateRow(row, exercise, setNumber);
+  }
+  refreshAroundCard(card, exercise);
+}
+
+// Updates the card's counter and badge, the Finish button and the header after a set changed.
+function refreshAroundCard(card, exercise) {
+  card.querySelector(".card-count-slot").innerHTML = renderCardCount(exercise);
+  card.querySelector(".card-badge").innerHTML = renderBadge(exercise);
+  if (unfinishedSession(state.day)) state.finishedMessage = null;
+  document.getElementById("finish-area").innerHTML = renderFinishArea();
+  renderHeader();
+  updateWakeLock();
+}
+
 // Runs on every keystroke in a set field.
 // Only the parts that can change are updated, so the keyboard and cursor stay where they are.
 function onSetInput(input) {
@@ -558,29 +622,9 @@ function onSetInput(input) {
   if (!drafts[key]) drafts[key] = {};
   drafts[key][input.dataset.field] = input.value;
 
-  // Read both fields: the other one may hold the prefill rather than typed text.
   const row = input.closest(".set-row");
-  const weight = parseWeight(row.querySelector('[data-field="weight"]').value);
-  const reps = parseReps(row.querySelector('[data-field="reps"]').value);
-  saveSetFromFields(exerciseId, setNumber, weight, reps);
-
-  const complete = Boolean(findLoggedSet(exerciseId, setNumber));
-  row.classList.toggle("complete", complete);
-  row.querySelector(".set-num").innerHTML = renderSetNumber(setNumber, complete);
-
-  const repsInput = row.querySelector('[data-field="reps"]');
-  repsInput.classList.remove("reps-low", "reps-top");
-  const colorClass = repsClass(reps, exercise);
-  if (colorClass) repsInput.classList.add(colorClass);
-
-  const card = row.closest(".card");
-  card.querySelector(".card-count-slot").innerHTML = renderCardCount(exercise);
-  card.querySelector(".card-badge").innerHTML = renderBadge(exercise);
-
-  if (complete) state.finishedMessage = null;
-  document.getElementById("finish-area").innerHTML = renderFinishArea();
-  renderHeader();
-  updateWakeLock();
+  updateRow(row, exercise, setNumber);
+  refreshAroundCard(row.closest(".card"), exercise);
 }
 
 async function finishWorkout() {
@@ -821,6 +865,21 @@ content.addEventListener("input", (event) => {
   if (input.classList.contains("set-input")) onSetInput(input);
 });
 
+// Set 1's weight box: remember its value when you tap in, copy it to later sets when you leave.
+function isSet1Weight(el) {
+  return el.classList.contains("set-input") && el.dataset.field === "weight" && el.dataset.key.endsWith("#1");
+}
+content.addEventListener("focusin", (event) => {
+  // An empty box keeps the weight remembered last time, so clearing set 1 and coming back later still works.
+  if (isSet1Weight(event.target) && event.target.value.trim() !== "") {
+    event.target.dataset.before = event.target.value;
+  }
+});
+// "change" fires when you leave the box, and only if the value changed.
+content.addEventListener("change", (event) => {
+  if (isSet1Weight(event.target)) copyWeightToLaterSets(event.target);
+});
+
 // The hidden file picker for "Import backup".
 content.addEventListener("change", (event) => {
   if (event.target.id !== "import-file") return;
@@ -882,6 +941,7 @@ const inProgress = state.sessions
 state.day = inProgress ? inProgress.day : state.suggested;
 
 render();
+lockPortrait();
 registerServiceWorker();
 backgroundSync();
 window.addEventListener("online", backgroundSync);
