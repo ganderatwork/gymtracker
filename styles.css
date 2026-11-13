@@ -31,7 +31,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
   color: inherit;
   font-variant-numeric: tabular-nums;
@@ -650,6 +651,67 @@ button {
 .suggestion-btn svg {
   width: 18px;
   height: 18px;
+}
+
+/* ---------- Notes (bottom of the card) ---------- */
+.card-note {
+  margin-top: 8px;
+}
+
+/* The note as tappable text; looks read-only until tapped. */
+.note-btn {
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--divider);
+  text-align: left;
+  color: var(--muted);
+}
+
+.note-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--muted);
+  white-space: pre-wrap; /* keep the line breaks you typed */
+  overflow-wrap: anywhere;
+}
+
+/* "Program note" on extras from the program: plain text, not tappable. */
+.note-readonly {
+  padding-top: 8px;
+  border-top: 1px solid var(--divider);
+}
+
+.note-label {
+  margin-right: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.note-empty {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.note-input {
+  display: block;
+  width: 100%;
+  min-height: 88px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border-input);
+  border-radius: 10px;
+  font-size: 15px;
+  line-height: 1.4;
+  resize: vertical;
 }
 
 /* ---------- Bottom sheet ---------- */

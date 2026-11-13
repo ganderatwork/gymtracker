@@ -22,6 +22,7 @@ A personal workout-logging PWA for one user on an Android phone (Chrome). It run
 | `sync.js` | Sending sessions, the library and targets to the Google Sheet and restoring from it |
 | `extras.js` | Extra exercises: the library, the "Add exercises" bottom sheet, extra blocks and their history |
 | `targets.js` | Per-exercise targets: one-time setup, suggestions (R1–R3), the target line and edit row on cards |
+| `notes.js` | Free-text notes per exercise: the note at the bottom of each card and its text box |
 | `app.js` | Screen logic and rendering |
 | `manifest.webmanifest` | PWA name, colors, icons |
 | `sw.js` | Service worker for offline use |
@@ -104,11 +105,12 @@ The letters A/B/C are internal keys only (used in ids and the data model). The U
   - Inside: "BLOCK A" label in the accent color, "Alternate" on the right when it holds two exercises, then one card per exercise.
 - **Exercise card:**
   - Slot code and name.
-  - Under the name: the target line, and a "Next target" suggestion when one is waiting (see "Targets").
-  - "sets × rep range" with a "completed / total" counter (e.g. "1/3") on the right, in `--good` when all sets are complete, otherwise `--muted`.
+  - Right under the name: "sets × rep range" with a "completed / total" counter (e.g. "1/3") on the right, in `--good` when all sets are complete, otherwise `--muted`.
+  - Below that: the target line, and a "Next target" suggestion when one is waiting (see "Targets").
   - Optional ADD WEIGHT badge.
   - Column headers: SET · LAST TIME · KG · REPS.
   - One row per set.
+  - At the bottom: the note (see "Notes").
 - **Set row:**
   - Set number, replaced by a ✓ in `--text` when the set is complete. The row's inputs then get `opacity: 0.75` but stay editable. (Not green: green means top of range.)
   - Last time as `weight × reps`; append ` ✓` when those reps reached the top of the range.
@@ -185,7 +187,7 @@ A target is what to aim for next time on an exercise: a weight and a rep count. 
     - `changedAt` = that session's `finishedAt`.
   - Existing targets are never overwritten. Exercises without history get no target.
   - After initialization, missing targets are only created through suggestions (R3) or manual edits.
-- **Target line** (under the exercise name, small muted text button):
+- **Target line** (below the "sets × rep range" line, small muted text button):
   - Shows "Target 3 × 11 · 22.5 kg" (sets × reps · weight), or "No target yet".
   - Tapping it turns the line into an edit row: a reps input and a kg input, styled like the set inputs.
   - The edit commits on tap outside or Enter when both values are valid (weight ≥ 0, reps a whole number ≥ 1). If either is empty or invalid, it cancels and keeps the old target. A target can never be removed.
@@ -202,6 +204,18 @@ A target is what to aim for next time on an exercise: a weight and a rep count. 
   - **Edit:** opens the edit row prefilled with the suggestion.
   - **×:** dismiss. Sets `dismissedFrom` to the suggestion's `fromSessionId` and clears `pending`.
 - `pending` and `dismissedFrom` stay on the phone: they are never synced or put in backups.
+
+### Notes (`notes.js`)
+
+A free-text note per exercise, for things that are hard to remember (bench position on the Smith machine, whether the kg include the bar, …). It is permanent per exercise, not per workout.
+
+- **Who has one:** program slots and custom extras each have their own note, under their exercise id (so Monday's and Friday's Cable lateral raise each have one). Program-sourced extras show the program's note read-only (see below).
+- **Storage:** `tt.notes` in localStorage, an object keyed by exerciseId → `{ text, changedAt }`. Same try/catch rules as the other keys. A deleted note stays as `{ text: "", changedAt }`, so the deletion also reaches the Sheet.
+- **On the card** (at the bottom, under the set rows):
+  - With text: the note as muted read-only text (line breaks kept). Tapping it opens the text box.
+  - Without text: a small pencil icon with muted "Add note". Tapping it opens the text box.
+  - The text box is a multi-line `<textarea>` (max 500 characters). Enter adds a new line; tapping outside saves. Text is trimmed; clearing all of it deletes the note.
+- **Program-sourced extras:** show "PROGRAM NOTE" plus the text, read-only, with no pencil. They use the note of the slot their program target comes from. If that slot has no note (or there is no target), they use the first slot in `sourceProgramIds` that has one. No note anywhere → nothing.
 
 ### Extra exercises
 
@@ -274,11 +288,16 @@ Logged extra sets go into the same `sets` array as program sets.
     dismissedFrom: "sessionId" | null                              // local only
   }
 }
+
+// tt.notes: one entry per exercise id
+{
+  "C-smith-incline": { text: "Bench notch 3", changedAt: "ISO date" }  // text "" = deleted
+}
 ```
 
 ### Storage on the phone (`storage.js`)
 
-- Store all sessions as one JSON array in `localStorage` under the key `tt.sessions`. Store the exercise library under `tt.exercises`, targets under `tt.targets` (plus the flag `tt.targetsInitialized`) and settings under `tt.settings`. The data stays small (about 150 sessions a year), so `localStorage` is enough.
+- Store all sessions as one JSON array in `localStorage` under the key `tt.sessions`. Store the exercise library under `tt.exercises`, targets under `tt.targets` (plus the flag `tt.targetsInitialized`), notes under `tt.notes` and settings under `tt.settings`. The data stays small (about 150 sessions a year), so `localStorage` is enough.
 - Save after every change to a set (completed, edited or cleared).
 - On first start, call `navigator.storage.persist()` to ask Chrome not to clear the data.
 - Wrap all reads and writes in try/catch. Corrupt or missing data must never crash the app; start empty instead and show a warning.
@@ -288,8 +307,9 @@ Logged extra sets go into the same `sets` array as program sets.
 - **Sheet layout:**
   - Tab `sets`, one row per logged set. Columns: `sessionId, date, day, exerciseId, exerciseName, setNumber, weightKg, reps, loggedAt`. Extra sets use the library name in `exerciseName`.
   - Tab `exercises`, the library. Columns: `id, name, sets, lo, hi, sourceProgramIds, createdAt` (`sourceProgramIds` as a comma-separated string). The script deletes the old `inc` column from Sheets made by earlier versions.
-    - **TODO, the next time `Code.gs` changes:** the `inc` cleanup is temporary. Once the owner confirms the `inc` column is gone from the Sheet, remove `removeOldIncColumn()` and its call in `getExercisesSheet()` in `Code.gs`. Also remove `withoutOldFields()` in `storage.js` (and its two uses), then remove this note.
+    - **TODO, the next `Code.gs` change after milestone 10:** the `inc` cleanup is temporary. It was kept on purpose in milestone 10, because it only runs when the script touches the `exercises` tab (on a restore or a library change). Once the owner confirms the `inc` column is gone from the Sheet, remove `removeOldIncColumn()` and its call in `getExercisesSheet()` in `Code.gs`. Also remove `withoutOldFields()` in `storage.js` (and its two uses), then remove this note.
   - Tab `targets`. Columns: `exerciseId, weight, reps, changedAt`. Only real targets; `pending` and `dismissedFrom` are never sent.
+  - Tab `notes`. Columns: `exerciseId, text, changedAt`, all formatted as plain text (so a note starting with "=" is never a formula). Deleted notes have empty text.
 - **Apps Script:**
   - Deployed as a web app: "Execute as: me", "Who has access: anyone".
   - The script stores the secret key in Script Properties (`SECRET_KEY`), never in the code.
@@ -300,13 +320,14 @@ Logged extra sets go into the same `sets` array as program sets.
   - `action: "saveSession"`: replace all rows with that `sessionId` (delete, then append). Retries can then never create duplicates.
   - `action: "saveExercises"`: merge the full library into the `exercises` tab by id (the app's entries win; rows the app doesn't have are kept, so an incomplete phone library can't wipe the Sheet).
   - `action: "saveTargets"`: send all current targets. The script merges them into the `targets` tab by exerciseId, keeping the newer `changedAt`; rows the app doesn't send are kept, so a phone that hasn't restored yet can't wipe or roll back the Sheet.
-  - `action: "list"`: return all set rows, the library and the targets (`{ ok, rows, exercises, targets }`), for restoring.
+  - `action: "saveNotes"`: the same for all notes, into the `notes` tab.
+  - `action: "list"`: return all set rows, the library, the targets and the notes (`{ ok, rows, exercises, targets, notes }`), for restoring.
   - `action: "ping"`: return `{ ok: true }` to test the connection.
   - Responses are JSON: `{ ok: true, ... }` or `{ ok: false, error }`.
 - **When to sync:** on finish, every finished session with `synced: false` is sent. The same check runs on app start and on the browser's `online` event. On success, set `synced: true`.
-  - Any library change sets `exercisesSynced: false` in `tt.settings`. Any target change (edit, Accept, initialization) sets `targetsSynced: false` and starts a background sync.
-  - Order of one sync: `saveExercises` (if needed), then sessions, then `saveTargets` (if needed). Each flag goes back to `true` on success. Targets come last so workouts still sync if the deployed script is older.
-- **Restore from Sheet:** merge the library by id first (local wins), then targets by exerciseId (newer `changedAt` wins), then rebuild sessions from the rows and merge them with local data by `sessionId`. Local data wins for sessions not yet synced.
+  - Any library change sets `exercisesSynced: false` in `tt.settings`. Any target change (edit, Accept, initialization) sets `targetsSynced: false`, and any note change sets `notesSynced: false`; both also start a background sync.
+  - Order of one sync: `saveExercises` (if needed), then sessions, then `saveTargets` and `saveNotes` (if needed). Each flag goes back to `true` on success. Targets and notes come last so workouts still sync if the deployed script is older.
+- **Restore from Sheet:** merge the library by id first (local wins), then targets and notes by exerciseId (newer `changedAt` wins), then rebuild sessions from the rows and merge them with local data by `sessionId`. Local data wins for sessions not yet synced.
 
 ### Settings screen
 
@@ -314,10 +335,10 @@ Reached from a small gear icon button in the header. Contains:
 
 - **Apps Script URL** and **secret key** inputs, saved to `tt.settings`.
 - A **"Test connection"** button (sends `ping`).
-- **Sync status:** last successful sync time, number of unsynced sessions, and whether the exercise library and the targets are synced.
+- **Sync status:** last successful sync time, number of unsynced sessions, and whether the exercise library, the targets and the notes are synced.
 - **"Restore from Sheet"**, with a confirmation dialog first.
-- **"Export backup"**: downloads `{ version: 3, sessions, exercises, targets }` as `training-backup-YYYY-MM-DD.json`. `targets` holds only `{ weight, reps, changedAt }` per exercise id.
-- **"Import backup"**: loads that file and merges the library by id, then targets by exerciseId (newer `changedAt` wins), then sessions by `sessionId`, with confirmation first. Versions 1 (a plain sessions array) and 2 (no targets) still work.
+- **"Export backup"**: downloads `{ version: 4, sessions, exercises, targets, notes }` as `training-backup-YYYY-MM-DD.json`. `targets` holds only `{ weight, reps, changedAt }` per exercise id.
+- **"Import backup"**: loads that file and merges the library by id, then targets and notes by exerciseId (newer `changedAt` wins), then sessions by `sessionId`, with confirmation first. Versions 1 (a plain sessions array), 2 (no targets) and 3 (no notes) still work.
 
 ## PWA
 
@@ -410,7 +431,12 @@ Each milestone ends with a short "how to test it" note for the owner.
    - Sync: the `targets` tab, `saveTargets`, and `list` with targets. Backup v3. Update `Code.gs` and deploy a new version.
    - The debug fake history covers initialization, R1, R2, R3, dismissing, and the lowest-target choice for Cable lateral raise.
    - This file and the README.
+10. **Notes, and the target below the rep range.**
+    - Card order: name, "sets × rep range", target line, suggestion, badge, set rows, note.
+    - `notes.js` and `tt.notes`: read-only note at the bottom of the card, tap to edit, a pencil with "Add note" when empty. Program-sourced extras show the program note read-only.
+    - Sync: the `notes` tab, `saveNotes`, and `list` with notes. Backup v4. Update `Code.gs` and deploy a new version.
+    - The debug fake history adds sample notes (bench press, and Friday's cable lateral raise for the program note).
 
 ## Out of scope for now
 
-Rest timer, progress charts (the Sheet covers this), editing the program inside the app, swapping exercises mid-workout, notes, bodyweight tracking, multiple users.
+Rest timer, progress charts (the Sheet covers this), editing the program inside the app, swapping exercises mid-workout, notes per workout (notes are per exercise), bodyweight tracking, multiple users.

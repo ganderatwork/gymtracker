@@ -272,6 +272,70 @@ function mergeTargets(local, incoming) {
   return { targets: targets, updatedCount: updatedCount, localNewer: localNewer };
 }
 
+// ---------- Notes ----------
+// tt.notes is an object keyed by exercise id: { text, changedAt }.
+// A deleted note stays as { text: "", changedAt }, so the deletion also reaches the Sheet
+// (the newer `changedAt` wins when merging).
+
+const NOTES_KEY = "tt.notes";
+
+function isValidNote(n) {
+  return Boolean(n && typeof n.text === "string" && typeof n.changedAt === "string");
+}
+
+// Same safety rules as loadSessions(): never crash, keep a copy of unreadable data.
+function loadNotes() {
+  let raw = null;
+  try {
+    raw = localStorage.getItem(NOTES_KEY);
+    if (raw === null) return {};
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Saved notes are not an object");
+    const notes = {};
+    for (const id of Object.keys(data)) {
+      if (isValidNote(data[id])) notes[id] = { text: data[id].text, changedAt: data[id].changedAt };
+    }
+    return notes;
+  } catch (error) {
+    try {
+      if (raw !== null) localStorage.setItem(NOTES_KEY + ".corrupt", raw);
+    } catch (copyError) {
+      // Nothing more we can do.
+    }
+    storageWarning = "Saved notes could not be read, so the app started without notes.";
+    return {};
+  }
+}
+
+function saveNotes(notes) {
+  try {
+    localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+    return true;
+  } catch (error) {
+    storageWarning = "Could not save notes on this phone. Storage may be full or blocked.";
+    return false;
+  }
+}
+
+// Merges incoming notes ({ id: { text, changedAt } }) into the local ones; the newer `changedAt` wins.
+// Returns { notes, updatedCount, localNewer } (see mergeTargets()).
+function mergeNotes(local, incoming) {
+  const notes = Object.assign({}, local);
+  let updatedCount = 0;
+  for (const id of Object.keys(incoming)) {
+    const n = incoming[id];
+    if (!isValidNote(n)) continue;
+    if (notes[id] && notes[id].changedAt >= n.changedAt) continue;
+    notes[id] = { text: n.text, changedAt: n.changedAt };
+    updatedCount++;
+  }
+  const localNewer = Object.keys(notes).some((id) => {
+    const other = incoming[id];
+    return !isValidNote(other) || other.text !== notes[id].text;
+  });
+  return { notes: notes, updatedCount: updatedCount, localNewer: localNewer };
+}
+
 // ---------- Settings ----------
 
 const SETTINGS_KEY = "tt.settings";
@@ -292,6 +356,8 @@ function loadSettings() {
     exercisesSynced: saved.exercisesSynced !== false,
     // false = a target has changed and must be sent to the Sheet.
     targetsSynced: saved.targetsSynced !== false,
+    // false = a note has changed and must be sent to the Sheet.
+    notesSynced: saved.notesSynced !== false,
   };
 }
 
@@ -307,14 +373,20 @@ function saveSettings(settings) {
 
 // ---------- Backup files ----------
 
-// Downloads everything as training-backup-YYYY-MM-DD.json: { version: 3, sessions, exercises, targets }.
+// Downloads everything as training-backup-YYYY-MM-DD.json: { version: 4, sessions, exercises, targets, notes }.
 // `targets` only holds { weight, reps, changedAt } per exercise (see shareableTargets()).
-function downloadBackup(sessions, exercises, targets) {
+function downloadBackup(sessions, exercises, targets, notes) {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   const date = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate());
 
-  const backup = { version: 3, sessions: sessions, exercises: exercises, targets: shareableTargets(targets) };
+  const backup = {
+    version: 4,
+    sessions: sessions,
+    exercises: exercises,
+    targets: shareableTargets(targets),
+    notes: notes,
+  };
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   // A temporary hidden link with `download` makes the browser save the file.
@@ -327,18 +399,19 @@ function downloadBackup(sessions, exercises, targets) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// Reads the text of a backup file. Returns { sessions, exercises, targets }, or null if it isn't a backup.
-// Version 1 backups are a plain list of sessions, version 2 has no targets; both still work.
+// Reads the text of a backup file. Returns { sessions, exercises, targets, notes }, or null if it isn't a backup.
+// Version 1 backups are a plain list of sessions, version 2 has no targets, version 3 no notes; all still work.
 function parseBackup(text) {
+  const isObject = (x) => Boolean(x) && typeof x === "object" && !Array.isArray(x);
   try {
     const data = JSON.parse(text);
-    if (Array.isArray(data)) return { sessions: data.filter(isValidSession), exercises: [], targets: {} };
+    if (Array.isArray(data)) return { sessions: data.filter(isValidSession), exercises: [], targets: {}, notes: {} };
     if (data && Array.isArray(data.sessions)) {
-      const targets = data.targets && typeof data.targets === "object" && !Array.isArray(data.targets) ? data.targets : {};
       return {
         sessions: data.sessions.filter(isValidSession),
         exercises: Array.isArray(data.exercises) ? data.exercises.filter(isValidLibraryExercise).map(withoutOldFields) : [],
-        targets: targets,
+        targets: isObject(data.targets) ? data.targets : {},
+        notes: isObject(data.notes) ? data.notes : {},
       };
     }
     return null;

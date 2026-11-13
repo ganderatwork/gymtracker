@@ -100,6 +100,18 @@ function markTargetsChanged() {
   saveSettings(settings);
 }
 
+// Call after any note change, so the next sync sends the notes.
+function markNotesChanged() {
+  const settings = loadSettings();
+  settings.notesSynced = false;
+  saveSettings(settings);
+}
+
+// Rows for the Sheet's `notes` tab. Deleted notes are sent with empty text, so they are deleted there too.
+function notesToRows(notes) {
+  return Object.keys(notes).map((id) => ({ exerciseId: id, text: notes[id].text, changedAt: notes[id].changedAt }));
+}
+
 // Rows for the Sheet's `targets` tab: one per exercise that has a target.
 function targetsToRows(targets) {
   const shared = shareableTargets(targets);
@@ -199,6 +211,23 @@ async function sendUnsynced() {
     sent++;
   }
 
+  // Then the notes (only when one has changed), the same way.
+  if (!settings.notesSynced) {
+    const rows = notesToRows(state.notes);
+    const snapshot = JSON.stringify(rows);
+    try {
+      await callScript(settings, { action: "saveNotes", notes: rows });
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+    if (JSON.stringify(notesToRows(state.notes)) === snapshot) {
+      const latest = loadSettings();
+      latest.notesSynced = true;
+      saveSettings(latest);
+    }
+    sent++;
+  }
+
   if (sent > 0) {
     // Load again: other settings may have changed during the sync.
     const latest = loadSettings();
@@ -277,13 +306,26 @@ function rowsToTargets(rows) {
   return targets;
 }
 
-// Fetches everything from the Sheet: { sessions, exercises, targets }.
+// Sheet `notes` rows → { exerciseId: { text, changedAt } }. Rows without an id or date are skipped.
+function rowsToNotes(rows) {
+  const notes = {};
+  for (const row of rows) {
+    const id = String(row.exerciseId || "");
+    const changedAt = String(row.changedAt || "");
+    if (!id || !changedAt) continue;
+    notes[id] = { text: String(row.text || ""), changedAt: changedAt };
+  }
+  return notes;
+}
+
+// Fetches everything from the Sheet: { sessions, exercises, targets, notes }.
 async function fetchSheetData() {
   const data = await callScript(loadSettings(), { action: "list" });
   return {
     sessions: rowsToSessions(Array.isArray(data.rows) ? data.rows : []),
     exercises: rowsToLibrary(Array.isArray(data.exercises) ? data.exercises : []),
     targets: rowsToTargets(Array.isArray(data.targets) ? data.targets : []),
+    notes: rowsToNotes(Array.isArray(data.notes) ? data.notes : []),
   };
 }
 

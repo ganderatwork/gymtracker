@@ -24,6 +24,9 @@ const EXERCISE_COLUMNS = ["id", "name", "sets", "lo", "hi", "sourceProgramIds", 
 const TARGETS_SHEET = "targets";
 const TARGET_COLUMNS = ["exerciseId", "weight", "reps", "changedAt"];
 
+const NOTES_SHEET = "notes";
+const NOTE_COLUMNS = ["exerciseId", "text", "changedAt"];
+
 // Every request from the app arrives here as a POST with a JSON body: { key, action, ... }.
 function doPost(e) {
   let body;
@@ -45,12 +48,14 @@ function doPost(e) {
     if (body.action === "saveSession") return reply(saveSession(body));
     if (body.action === "saveExercises") return reply(saveExercises(body));
     if (body.action === "saveTargets") return reply(saveTargets(body));
+    if (body.action === "saveNotes") return reply(saveNotes(body));
     if (body.action === "list") {
       return reply({
         ok: true,
         rows: readRows(getSetsSheet(), SETS_COLUMNS),
         exercises: readRows(getExercisesSheet(), EXERCISE_COLUMNS),
         targets: readRows(getTargetsSheet(), TARGET_COLUMNS),
+        notes: readRows(getNotesSheet(), NOTE_COLUMNS),
       });
     }
     return reply({ ok: false, error: "Unknown action." });
@@ -103,6 +108,11 @@ function removeOldIncColumn(sheet) {
 
 function getTargetsSheet() {
   return getSheet(TARGETS_SHEET, TARGET_COLUMNS, ["A:A", "D:D"]);
+}
+
+// All columns as plain text, so a note starting with "=" or "+" is never treated as a formula.
+function getNotesSheet() {
+  return getSheet(NOTES_SHEET, NOTE_COLUMNS, ["A:C"]);
 }
 
 // Turns row objects into a grid of cell values in the order of `columns`.
@@ -163,22 +173,33 @@ function saveExercises(body) {
 // restored yet can therefore never wipe or roll back targets in the Sheet.
 function saveTargets(body) {
   if (!Array.isArray(body.targets)) return { ok: false, error: "Missing targets." };
-  const sheet = getTargetsSheet();
+  return mergeNewerById(getTargetsSheet(), TARGET_COLUMNS, body.targets);
+}
 
+// Same as saveTargets, for the `notes` tab. A deleted note arrives with empty text.
+function saveNotes(body) {
+  if (!Array.isArray(body.notes)) return { ok: false, error: "Missing notes." };
+  return mergeNewerById(getNotesSheet(), NOTE_COLUMNS, body.notes);
+}
+
+// Merges `incoming` rows into a tab keyed by its first column (exerciseId):
+// the row with the newer `changedAt` wins, rows only in the Sheet are kept.
+function mergeNewerById(sheet, columns, incoming) {
   const byId = new Map();
-  readRows(sheet, TARGET_COLUMNS).forEach((row) => byId.set(String(row.exerciseId), row));
-  body.targets.forEach((target) => {
-    const id = String(target.exerciseId);
+  readRows(sheet, columns).forEach((row) => byId.set(String(row.exerciseId), row));
+  incoming.forEach((item) => {
+    const id = String(item.exerciseId);
     const existing = byId.get(id);
-    if (!existing || String(target.changedAt || "") >= String(existing.changedAt || "")) byId.set(id, target);
+    if (!existing || String(item.changedAt || "") >= String(existing.changedAt || "")) byId.set(id, item);
   });
   const merged = Array.from(byId.values()).filter((row) => row.exerciseId !== "");
 
+  // Clear instead of deleting rows: Sheets refuses to delete every non-frozen row.
   const lastRow = sheet.getLastRow();
-  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, TARGET_COLUMNS.length).clearContent();
+  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, columns.length).clearContent();
   if (merged.length > 0) {
-    const values = toValues(merged, TARGET_COLUMNS);
-    sheet.getRange(2, 1, values.length, TARGET_COLUMNS.length).setValues(values);
+    const values = toValues(merged, columns);
+    sheet.getRange(2, 1, values.length, columns.length).setValues(values);
   }
   return { ok: true, saved: merged.length };
 }

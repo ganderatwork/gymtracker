@@ -85,6 +85,12 @@ function libraryEntryById(id) {
   return state.library.find((e) => e.id === id) || null;
 }
 
+// An extra picked from the program (it lists program slots in sourceProgramIds).
+// These show the program's target and note read-only instead of having their own.
+function isProgramSourced(exercise) {
+  return Boolean(exercise.isExtra) && exercise.sourceProgramIds.length > 0;
+}
+
 // ---------- Extra blocks ----------
 
 // A library entry in the same shape as a program exercise, so app.js can treat both alike.

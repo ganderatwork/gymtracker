@@ -94,6 +94,17 @@
       // ignore
     }
     initTargets();
+    // Sample notes (only where there is no note yet): one to edit on Monday's bench press, and one on
+    // Friday's cable lateral raise that shows as "Program note" when you add it as an extra.
+    const notes = loadNotes();
+    const sampleNotes = {
+      "A-bench": "Weight without the bar (20 kg).",
+      "C-cable-lateral": "Cable at hip height.\nHandle, no cuff.",
+    };
+    for (const id of Object.keys(sampleNotes)) {
+      if (!notes[id] || !notes[id].text) notes[id] = { text: sampleNotes[id], changedAt: new Date().toISOString() };
+    }
+    saveNotes(notes);
     // Never send these fake targets to the Sheet.
     const settings = loadSettings();
     settings.targetsSynced = true;
@@ -133,12 +144,13 @@
   }
 
   function clearAllData() {
-    if (!confirm("Delete ALL saved workouts, extra exercises and targets on this device?")) return;
+    if (!confirm("Delete ALL saved workouts, extra exercises, targets and notes on this device?")) return;
     try {
       localStorage.removeItem(SESSIONS_KEY);
       localStorage.removeItem(EXERCISES_KEY);
       localStorage.removeItem(TARGETS_KEY);
       localStorage.removeItem(TARGETS_INIT_KEY);
+      localStorage.removeItem(NOTES_KEY);
     } catch (error) {
       // ignore
     }

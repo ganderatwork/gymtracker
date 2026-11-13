@@ -13,7 +13,7 @@
 
 // True if this card keeps its own target (program exercise or custom extra).
 function ownsTarget(exercise) {
-  return !exercise.isExtra || exercise.sourceProgramIds.length === 0;
+  return !isProgramSourced(exercise);
 }
 
 // The saved target { weight, reps } for an exercise id, or null if it has none (yet).
@@ -23,13 +23,16 @@ function ownTarget(exerciseId) {
 }
 
 // For a program-sourced extra: the linked program slot whose target has the lowest weight
-// (on a tie, the fewest reps). Slots without a target are ignored. Returns null if none has one.
+// (on a tie, the fewest reps). Slots without a target are ignored. Returns { weight, reps, id }
+// (`id` = which slot it came from), or null if none has one.
 function programTargetFor(exercise) {
   let best = null;
   for (const id of exercise.sourceProgramIds) {
     const t = ownTarget(id);
     if (!t) continue;
-    if (!best || t.weight < best.weight || (t.weight === best.weight && t.reps < best.reps)) best = t;
+    if (!best || t.weight < best.weight || (t.weight === best.weight && t.reps < best.reps)) {
+      best = { weight: t.weight, reps: t.reps, id: id };
+    }
   }
   return best;
 }

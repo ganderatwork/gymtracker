@@ -23,6 +23,10 @@ const state = {
   targets: loadTargets(),
   // The target edit row while open: { exerciseId, weight, reps }, otherwise null.
   targetEdit: null,
+  // Free-text notes per exercise id (see storage.js and notes.js).
+  notes: loadNotes(),
+  // The note text box while open: { exerciseId, text }, otherwise null.
+  noteEdit: null,
 };
 
 // ---------- Sessions and history ----------
@@ -363,11 +367,11 @@ function renderExerciseCard(exercise) {
         ${removeHtml}
       </div>
       <h2 class="card-name">${escapeHtml(exercise.name)}</h2>
-      <div class="card-target">${renderTargetArea(exercise)}</div>
       <div class="card-meta">
         <span>${exercise.sets} × ${repRange(exercise)}</span>
         <span class="card-count-slot">${renderCardCount(exercise)}</span>
       </div>
+      <div class="card-target">${renderTargetArea(exercise)}</div>
       <div class="card-badge">${renderBadge(exercise)}</div>
       <div class="col-heads set-grid">
         <span>Set</span>
@@ -376,6 +380,7 @@ function renderExerciseCard(exercise) {
         <span>Reps</span>
       </div>
       ${rowsHtml}
+      <div class="card-note">${renderNoteArea(exercise)}</div>
     </section>`;
 }
 
@@ -451,7 +456,8 @@ function renderSyncStatus() {
   const unsynced = state.sessions.filter((s) => s.finishedAt && !s.synced).length;
   const library = settings.exercisesSynced ? "synced" : "waiting to sync";
   const targets = settings.targetsSynced ? "synced" : "waiting to sync";
-  return `Last sync: ${lastSync}<br />Unsynced workouts: ${unsynced}<br />Extra exercises: ${library}<br />Targets: ${targets}`;
+  const notes = settings.notesSynced ? "synced" : "waiting to sync";
+  return `Last sync: ${lastSync}<br />Unsynced workouts: ${unsynced}<br />Extra exercises: ${library}<br />Targets: ${targets}<br />Notes: ${notes}`;
 }
 
 // Updates only the status text, so a field being typed in isn't redrawn.
@@ -751,14 +757,19 @@ async function restoreFromSheet() {
   saveTargets(state.targets);
   if (targets.localNewer) markTargetsChanged();
 
+  const notes = mergeNotes(state.notes, remote.notes);
+  state.notes = notes.notes;
+  saveNotes(state.notes);
+  if (notes.localNewer) markNotesChanged();
+
   const result = mergeFromSheet(state.sessions, remote.sessions);
   state.sessions = result.sessions;
   refreshAfterDataChange();
   if (saveSessions(state.sessions)) {
     showSettingsMessage(
       "Restored " + remote.sessions.length + " workouts (" + result.addedCount + " new on this phone), " +
-        remote.exercises.length + " extra exercises (" + library.addedCount + " new) and " +
-        plural(targets.updatedCount, "updated target") + ".",
+        remote.exercises.length + " extra exercises (" + library.addedCount + " new), " +
+        plural(targets.updatedCount, "updated target") + " and " + plural(notes.updatedCount, "updated note") + ".",
       false,
       "sync"
     );
@@ -768,7 +779,7 @@ async function restoreFromSheet() {
 }
 
 function exportBackup() {
-  downloadBackup(state.sessions, state.library, state.targets);
+  downloadBackup(state.sessions, state.library, state.targets, state.notes);
   showSettingsMessage("Backup downloaded. Keep it somewhere safe, like Google Drive.", false);
 }
 
@@ -793,32 +804,36 @@ async function importBackup(file) {
 
   const library = mergeLibrary(state.library, imported.exercises);
   const targets = mergeTargets(state.targets, imported.targets);
+  const notes = mergeNotes(state.notes, imported.notes);
   const merged = mergeSessions(state.sessions, imported.sessions);
   const newCount = merged.length - state.sessions.length;
-  if (newCount === 0 && library.addedCount === 0 && targets.updatedCount === 0) {
+  if (newCount === 0 && library.addedCount === 0 && targets.updatedCount === 0 && notes.updatedCount === 0) {
     showSettingsMessage("Nothing new in that file. Everything in it is already on this phone.", false);
     return;
   }
 
   const summary =
-    plural(newCount, "workout") + ", " + plural(library.addedCount, "extra exercise") + " and " +
-    plural(targets.updatedCount, "newer target");
+    plural(newCount, "workout") + ", " + plural(library.addedCount, "extra exercise") + ", " +
+    plural(targets.updatedCount, "newer target") + " and " + plural(notes.updatedCount, "newer note");
   const ok = confirm(
     "Add " + summary + " from this file?\n\nEverything already on this phone is kept, " +
-      "except targets that are older than the ones in the file."
+      "except targets and notes that are older than the ones in the file."
   );
   if (!ok) return;
 
-  // The library first (so extras have names), then the targets, then the workouts.
+  // The library first (so extras have names), then targets and notes, then the workouts.
   state.library = library.library;
   const libraryOk = saveExercises(state.library);
   if (library.addedCount > 0) markLibraryChanged();
   state.targets = targets.targets;
   const targetsOk = saveTargets(state.targets);
   if (targets.updatedCount > 0) markTargetsChanged();
+  state.notes = notes.notes;
+  const notesOk = saveNotes(state.notes);
+  if (notes.updatedCount > 0) markNotesChanged();
   state.sessions = merged;
   refreshAfterDataChange();
-  if (saveSessions(state.sessions) && libraryOk && targetsOk) {
+  if (saveSessions(state.sessions) && libraryOk && targetsOk && notesOk) {
     showSettingsMessage("Imported " + summary + ".", false);
   } else {
     showSettingsMessage("Import failed: could not save on this phone.", true);
