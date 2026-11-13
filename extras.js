@@ -1,11 +1,7 @@
-// Extra exercises: the exercise library, the "Add exercises" bottom sheet, extra blocks,
-// history for extras, and the rule where extras push a program exercise.
+// Extra exercises: the exercise library, the "Add exercises" bottom sheet, extra blocks
+// and their history.
 // Uses `state`, CHECK_ICON, escapeHtml, parseReps, parseWeight and other helpers from app.js.
 // Those are only used inside functions, which run after every file has loaded.
-
-// A program-linked extra only uses its own history if it is at most this old.
-const EXTRA_HISTORY_MAX_DAYS = 30;
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 const CLOSE_ICON =
   '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">' +
@@ -176,6 +172,8 @@ function removeExtraExercise(exerciseId) {
     state.sessions = state.sessions.filter((s) => s !== session);
   }
   saveSessions(state.sessions);
+  // Its sets are gone, so a suggestion made from them today no longer holds.
+  evaluateSuggestion(extraExercise(exerciseId, ""));
   render();
 }
 
@@ -192,50 +190,11 @@ function latestFinishedWith(ids) {
   return latest;
 }
 
-// Where an extra's "last time" comes from. Returns { source: "extra" | "program" | null, sets }.
+// "Last time" for an extra: its own sets in the most recent finished session that has them,
+// however old. Returns an empty list if it was never logged.
 function extraHistory(exercise) {
-  const isCustom = exercise.sourceProgramIds.length === 0;
-
-  // 1. Its own history as an extra (program-linked ones only if recent enough).
   const own = latestFinishedWith([exercise.id]);
-  if (own) {
-    const ageMs = Date.now() - Date.parse(own.finishedAt);
-    if (isCustom || ageMs <= EXTRA_HISTORY_MAX_DAYS * ONE_DAY_MS) {
-      return { source: "extra", sets: own.sets.filter((s) => s.exerciseId === exercise.id) };
-    }
-  }
-
-  // 2. A ballpark from the program: the latest session with any of the linked program slots.
-  if (!isCustom) {
-    const program = latestFinishedWith(exercise.sourceProgramIds);
-    if (program) {
-      return { source: "program", sets: program.sets.filter((s) => exercise.sourceProgramIds.includes(s.exerciseId)) };
-    }
-  }
-
-  // 3. Nothing.
-  return { source: null, sets: [] };
-}
-
-// "Extra sets that push the program": true when, since this program slot's last session,
-// an extra linked to it reached the slot's working weight and the top of the slot's range.
-function pushedByExtra(exercise) {
-  if (exercise.isExtra) return false;
-
-  const lastProgram = lastFinishedSession(state.day);
-  if (!lastProgram) return false;
-  const programSets = lastProgram.sets.filter((s) => s.exerciseId === exercise.id);
-  if (programSets.length === 0) return false;
-  const workingWeight = Math.max(...programSets.map((s) => s.weight));
-
-  const linkedIds = state.library.filter((e) => e.sourceProgramIds.includes(exercise.id)).map((e) => e.id);
-  if (linkedIds.length === 0) return false;
-  const extraSession = latestFinishedWith(linkedIds);
-  if (!extraSession || extraSession.finishedAt < lastProgram.finishedAt) return false;
-
-  return extraSession.sets.some(
-    (s) => linkedIds.includes(s.exerciseId) && s.weight >= workingWeight && s.reps >= exercise.repMax
-  );
+  return own ? own.sets.filter((s) => s.exerciseId === exercise.id) : [];
 }
 
 // ---------- The extras section on the workout screen ----------

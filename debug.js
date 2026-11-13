@@ -9,8 +9,9 @@
   // Builds one finished fake session. Exercises cycle through three patterns:
   //   0: every set at the top of the range  → ADD WEIGHT badge, green "✓"
   //   1: bottom of range, last set below it → amber last-time value
-  //   2: only set 1 logged                  → later sets prefill from set 1
-  function fakeSession(day, daysAgo) {
+  //   2: only set 1 logged
+  // Exercises listed in `skipIds` get no sets at all (so they have no history and no target).
+  function fakeSession(day, daysAgo, skipIds) {
     const finished = new Date(Date.now() - daysAgo * DAY_MS);
     const started = new Date(finished.getTime() - 60 * 60 * 1000);
     const sets = [];
@@ -21,6 +22,7 @@
         const pattern = index % 3;
         const weight = 20 + index * 5;
         index++;
+        if (skipIds && skipIds.includes(exercise.id)) continue;
 
         for (let setNumber = 1; setNumber <= exercise.sets; setNumber++) {
           if (pattern === 2 && setNumber > 1) continue;
@@ -43,34 +45,59 @@
   }
 
   function fillFakeHistory() {
+    const ok = confirm(
+      "Add fake workouts, and REPLACE all targets on this device with targets made from them?\n\n" +
+        "Best used on a test device or a local copy, not on your real phone data."
+    );
+    if (!ok) return;
+
     const sessions = loadSessions().filter((s) => !s.id.startsWith("debug-"));
     // A a week ago, B 5 days ago, C 3 days ago → the rotation suggests A next.
-    const a = fakeSession("A", 7);
+    // Monday's overhead triceps (D2) is left out, so it has no target: test R3 there.
+    const a = fakeSession("A", 7, ["A-oh-triceps"]);
     const b = fakeSession("B", 5);
     const c = fakeSession("C", 3);
-    // An older Monday, only there to hold an extra that is more than 30 days old.
-    const oldA = fakeSession("A", 40);
 
     // Extras. Library entries with these names are reused if they already exist.
     const library = loadExercises();
     const crunch = ensureEntry(library, "Cable crunch", 3, 12, 15, []);
     const pecDeck = ensureEntry(library, "Pec deck", 3, 12, 15, ["C-pec-deck"]);
-    const facePull = ensureEntry(library, "Face pull", 3, 12, 15, ["B-face-pull"]);
-    const triceps = ensureEntry(library, "Overhead cable triceps extension", 3, 10, 12, ["A-oh-triceps"]);
+    // Linked to both program slots. Monday's is 50 kg × 15, Friday's 45 kg × 13 (from the patterns
+    // above), so as an extra it shows Friday's lighter "Program target 3 × 13 · 45 kg".
+    ensureEntry(library, "Cable lateral raise", 3, 12, 15, ["A-cable-lateral", "C-cable-lateral"]);
     saveExercises(library);
 
-    // Recent extra (7 days): Pec deck on Monday uses its own history, no PROGRAM tag.
+    // Pec deck as an extra on Monday: last time from its own use, target from Friday's program slot.
     addExtra(a, "E", pecDeck, 30, [15, 13, 13]);
-    // Custom extra at the top of its range: Cable crunch shows ADD WEIGHT.
+    // Custom extra at the top of its range: ADD WEIGHT, and its own target 3 × 15 · 40 kg.
     addExtra(c, "E", crunch, 40, [15, 15, 15]);
-    // Beats Monday's triceps (55 kg × 12 is the program's weight and top reps):
-    // Monday's D2 card shows "Top reps as an extra. Go heavier today." with empty weights.
-    addExtra(c, "F", triceps, 55, [12]);
-    // Old extra (40 days): Face pull falls back to the program's numbers and shows the PROGRAM tag.
-    addExtra(oldA, "E", facePull, 25, [12, 12, 12]);
 
-    sessions.push(oldA, a, b, c);
+    sessions.push(a, b, c);
     saveSessions(sessions);
+
+    // Targets: start over and run the real one-time setup on the fake history.
+    // Bench press (Monday A1) also gets a suggestion "from last Monday", to try Accept / Edit / ×.
+    state.sessions = sessions;
+    state.library = library;
+    state.targets = {
+      "A-bench": {
+        weight: null,
+        reps: null,
+        changedAt: null,
+        pending: { weight: 22.5, reps: 6, fromSessionId: a.id },
+        dismissedFrom: null,
+      },
+    };
+    try {
+      localStorage.removeItem(TARGETS_INIT_KEY);
+    } catch (error) {
+      // ignore
+    }
+    initTargets();
+    // Never send these fake targets to the Sheet.
+    const settings = loadSettings();
+    settings.targetsSynced = true;
+    saveSettings(settings);
     location.reload();
   }
 
@@ -106,10 +133,12 @@
   }
 
   function clearAllData() {
-    if (!confirm("Delete ALL saved workouts and extra exercises on this device?")) return;
+    if (!confirm("Delete ALL saved workouts, extra exercises and targets on this device?")) return;
     try {
       localStorage.removeItem(SESSIONS_KEY);
       localStorage.removeItem(EXERCISES_KEY);
+      localStorage.removeItem(TARGETS_KEY);
+      localStorage.removeItem(TARGETS_INIT_KEY);
     } catch (error) {
       // ignore
     }

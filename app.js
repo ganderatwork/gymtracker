@@ -19,6 +19,10 @@ const state = {
   library: loadExercises(),
   // The "Add exercises" bottom sheet while open, otherwise null (see extras.js).
   sheet: null,
+  // Targets per exercise id (see storage.js and targets.js).
+  targets: loadTargets(),
+  // The target edit row while open: { exerciseId, weight, reps }, otherwise null.
+  targetEdit: null,
 };
 
 // ---------- Sessions and history ----------
@@ -77,20 +81,13 @@ function getOrStartSession() {
   return session;
 }
 
-// Where an exercise's "last time" comes from: { sets, programTag }.
+// The sets of an exercise's "last time".
 // Program exercises: the latest finished session of the same day.
-// Extras: see extraHistory() in extras.js. `programTag` = show the small PROGRAM tag.
-function lastTimeInfo(exercise) {
-  if (exercise.isExtra) {
-    const history = extraHistory(exercise);
-    return { sets: history.sets, programTag: history.source === "program" };
-  }
-  const session = lastFinishedSession(state.day);
-  return { sets: session ? session.sets.filter((s) => s.exerciseId === exercise.id) : [], programTag: false };
-}
-
+// Extras: their own most recent use (see extraHistory() in extras.js).
 function lastTimeSets(exercise) {
-  return lastTimeInfo(exercise).sets;
+  if (exercise.isExtra) return extraHistory(exercise);
+  const session = lastFinishedSession(state.day);
+  return session ? session.sets.filter((s) => s.exerciseId === exercise.id) : [];
 }
 
 function lastTimeSet(exercise, setNumber) {
@@ -111,13 +108,16 @@ function earnedToday(exercise) {
   return allAtTop(sets, exercise);
 }
 
-// Weight to pre-fill: same set last time (or last time's first set).
-// Returns null (empty field) when there is no history, or when it's time to add weight:
-// then you pick the new weight yourself.
+// Weight to pre-fill:
+// - empty when "Top reps last time" shows: you pick the new, heavier weight yourself;
+// - otherwise the target weight (for extras from the program: the program target, see targets.js);
+// - with no target: the same set last time (or last time's first set), or empty with no history.
 function prefillWeight(exercise, setNumber) {
+  if (earnedLastTime(exercise)) return null;
+  const target = targetFor(exercise);
+  if (target) return target.weight;
   const sets = lastTimeSets(exercise);
   if (sets.length === 0) return null;
-  if (earnedLastTime(exercise) || pushedByExtra(exercise)) return null;
   const sameSet = sets.find((s) => s.setNumber === setNumber);
   const firstSet = sets.reduce((a, b) => (b.setNumber < a.setNumber ? b : a));
   return (sameSet || firstSet).weight;
@@ -153,11 +153,23 @@ function parseReps(text) {
   return number > 0 ? number : null;
 }
 
-// CSS class for a reps value: amber below the range, green at or above the top.
+// CSS class for a reps value against the rep range: amber below it, green at or above the top.
+// Used for the last-time column.
 function repsClass(reps, exercise) {
   if (reps === null) return "";
   if (reps < exercise.repMin) return "reps-low";
   if (reps >= exercise.repMax) return "reps-top";
+  return "";
+}
+
+// CSS class for the reps you type. With a target: amber below the target reps, normal at it,
+// green above it. Without a target: the same as repsClass().
+function inputRepsClass(reps, exercise) {
+  const target = targetFor(exercise);
+  if (!target) return repsClass(reps, exercise);
+  if (reps === null) return "";
+  if (reps < target.reps) return "reps-low";
+  if (reps > target.reps) return "reps-top";
   return "";
 }
 
@@ -283,7 +295,7 @@ function renderSetRow(exercise, setNumber) {
   if (draft.weight !== undefined) weightText = draft.weight;
   let repsText = loggedSet ? String(loggedSet.reps) : "";
   if (draft.reps !== undefined) repsText = draft.reps;
-  const colorClass = repsClass(parseReps(repsText), exercise);
+  const colorClass = inputRepsClass(parseReps(repsText), exercise);
 
   const last = lastTimeSet(exercise, setNumber);
   let lastText = "—";
@@ -319,15 +331,13 @@ function renderCardCount(exercise) {
   return `<span class="card-count${allDone ? " done" : ""}">${done}/${exercise.sets}</span>`;
 }
 
-// The ADD WEIGHT badge. "Earned today" wins over the others.
+// The ADD WEIGHT badge. "Earned today" wins over "earned last time".
 function renderBadge(exercise) {
   let text;
   if (earnedToday(exercise)) {
     text = "All sets at top today. Go heavier next time.";
   } else if (earnedLastTime(exercise)) {
     text = "Top reps last time. Go heavier today.";
-  } else if (pushedByExtra(exercise)) {
-    text = "Top reps as an extra. Go heavier today.";
   } else {
     return "";
   }
@@ -340,12 +350,11 @@ function renderExerciseCard(exercise) {
     rowsHtml += renderSetRow(exercise, setNumber);
   }
 
-  // Extras: a Remove button, and a PROGRAM tag when "last time" is a ballpark from the program.
+  // Extras get a Remove button.
   const removeHtml = exercise.isExtra
     ? `<button class="text-btn remove-btn" type="button" data-remove="${escapeHtml(exercise.id)}"
         aria-label="Remove ${escapeHtml(exercise.name)}">Remove</button>`
     : "";
-  const tagHtml = lastTimeInfo(exercise).programTag ? '<span class="program-tag">Program</span>' : "";
 
   return `
     <section class="card" data-card="${escapeHtml(exercise.id)}">
@@ -354,8 +363,9 @@ function renderExerciseCard(exercise) {
         ${removeHtml}
       </div>
       <h2 class="card-name">${escapeHtml(exercise.name)}</h2>
+      <div class="card-target">${renderTargetArea(exercise)}</div>
       <div class="card-meta">
-        <span>${exercise.sets} × ${repRange(exercise)} ${tagHtml}</span>
+        <span>${exercise.sets} × ${repRange(exercise)}</span>
         <span class="card-count-slot">${renderCardCount(exercise)}</span>
       </div>
       <div class="card-badge">${renderBadge(exercise)}</div>
@@ -440,7 +450,8 @@ function renderSyncStatus() {
     : "never";
   const unsynced = state.sessions.filter((s) => s.finishedAt && !s.synced).length;
   const library = settings.exercisesSynced ? "synced" : "waiting to sync";
-  return `Last sync: ${lastSync}<br />Unsynced workouts: ${unsynced}<br />Extra exercises: ${library}`;
+  const targets = settings.targetsSynced ? "synced" : "waiting to sync";
+  return `Last sync: ${lastSync}<br />Unsynced workouts: ${unsynced}<br />Extra exercises: ${library}<br />Targets: ${targets}`;
 }
 
 // Updates only the status text, so a field being typed in isn't redrawn.
@@ -566,7 +577,7 @@ function updateRow(row, exercise, setNumber) {
 
   const repsInput = row.querySelector('[data-field="reps"]');
   repsInput.classList.remove("reps-low", "reps-top");
-  const colorClass = repsClass(reps, exercise);
+  const colorClass = inputRepsClass(reps, exercise);
   if (colorClass) repsInput.classList.add(colorClass);
   return complete;
 }
@@ -600,10 +611,12 @@ function copyWeightToLaterSets(set1Input) {
   refreshAroundCard(card, exercise);
 }
 
-// Updates the card's counter and badge, the Finish button and the header after a set changed.
+// Updates the card's counter, badge and target suggestion, the Finish button and the header after a set changed.
 function refreshAroundCard(card, exercise) {
   card.querySelector(".card-count-slot").innerHTML = renderCardCount(exercise);
   card.querySelector(".card-badge").innerHTML = renderBadge(exercise);
+  evaluateSuggestion(exercise);
+  card.querySelector(".card-target").innerHTML = renderTargetArea(exercise);
   if (unfinishedSession(state.day)) state.finishedMessage = null;
   document.getElementById("finish-area").innerHTML = renderFinishArea();
   renderHeader();
@@ -672,7 +685,9 @@ function showSettingsMessage(text, isError, section) {
 }
 
 // After import or restore: if nothing is in progress, jump to the day the rotation now suggests.
+// Also runs the one-time target setup, in case these are the first workouts on this phone.
 function refreshAfterDataChange() {
+  initTargets();
   state.suggested = suggestedDay();
   if (!state.sessions.some((s) => !s.finishedAt)) {
     state.day = state.suggested;
@@ -724,20 +739,26 @@ async function restoreFromSheet() {
     return;
   }
 
-  // The library first (so extras have names), then the workouts.
+  // The library first (so extras have names), then the targets, then the workouts.
   const library = mergeLibrary(state.library, remote.exercises);
   state.library = library.library;
   saveExercises(state.library);
   const remoteIds = new Set(remote.exercises.map((e) => e.id));
   if (state.library.some((e) => !remoteIds.has(e.id))) markLibraryChanged();
 
+  const targets = mergeTargets(state.targets, remote.targets);
+  state.targets = targets.targets;
+  saveTargets(state.targets);
+  if (targets.localNewer) markTargetsChanged();
+
   const result = mergeFromSheet(state.sessions, remote.sessions);
   state.sessions = result.sessions;
   refreshAfterDataChange();
   if (saveSessions(state.sessions)) {
     showSettingsMessage(
-      "Restored " + remote.sessions.length + " workouts (" + result.addedCount + " new on this phone) and " +
-        remote.exercises.length + " extra exercises (" + library.addedCount + " new).",
+      "Restored " + remote.sessions.length + " workouts (" + result.addedCount + " new on this phone), " +
+        remote.exercises.length + " extra exercises (" + library.addedCount + " new) and " +
+        plural(targets.updatedCount, "updated target") + ".",
       false,
       "sync"
     );
@@ -747,7 +768,7 @@ async function restoreFromSheet() {
 }
 
 function exportBackup() {
-  downloadBackup(state.sessions, state.library);
+  downloadBackup(state.sessions, state.library, state.targets);
   showSettingsMessage("Backup downloaded. Keep it somewhere safe, like Google Drive.", false);
 }
 
@@ -771,30 +792,34 @@ async function importBackup(file) {
   }
 
   const library = mergeLibrary(state.library, imported.exercises);
+  const targets = mergeTargets(state.targets, imported.targets);
   const merged = mergeSessions(state.sessions, imported.sessions);
   const newCount = merged.length - state.sessions.length;
-  if (newCount === 0 && library.addedCount === 0) {
+  if (newCount === 0 && library.addedCount === 0 && targets.updatedCount === 0) {
     showSettingsMessage("Nothing new in that file. Everything in it is already on this phone.", false);
     return;
   }
 
+  const summary =
+    plural(newCount, "workout") + ", " + plural(library.addedCount, "extra exercise") + " and " +
+    plural(targets.updatedCount, "newer target");
   const ok = confirm(
-    "Add " + plural(newCount, "workout") + " and " + plural(library.addedCount, "extra exercise") +
-      " from this file?\n\nEverything already on this phone is kept as it is."
+    "Add " + summary + " from this file?\n\nEverything already on this phone is kept, " +
+      "except targets that are older than the ones in the file."
   );
   if (!ok) return;
 
-  // The library first (so extras have names), then the workouts.
+  // The library first (so extras have names), then the targets, then the workouts.
   state.library = library.library;
   const libraryOk = saveExercises(state.library);
   if (library.addedCount > 0) markLibraryChanged();
+  state.targets = targets.targets;
+  const targetsOk = saveTargets(state.targets);
+  if (targets.updatedCount > 0) markTargetsChanged();
   state.sessions = merged;
   refreshAfterDataChange();
-  if (saveSessions(state.sessions) && libraryOk) {
-    showSettingsMessage(
-      "Imported " + plural(newCount, "workout") + " and " + plural(library.addedCount, "extra exercise") + ".",
-      false
-    );
+  if (saveSessions(state.sessions) && libraryOk && targetsOk) {
+    showSettingsMessage("Imported " + summary + ".", false);
   } else {
     showSettingsMessage("Import failed: could not save on this phone.", true);
   }
@@ -932,6 +957,7 @@ function registerServiceWorker() {
 // ---------- Start ----------
 
 requestPersistentStorage();
+initTargets();
 state.suggested = suggestedDay();
 
 // Resume an unfinished workout if there is one (the most recently started).

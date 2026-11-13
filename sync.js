@@ -93,6 +93,24 @@ function markLibraryChanged() {
   saveSettings(settings);
 }
 
+// Call after any target change, so the next sync sends the targets.
+function markTargetsChanged() {
+  const settings = loadSettings();
+  settings.targetsSynced = false;
+  saveSettings(settings);
+}
+
+// Rows for the Sheet's `targets` tab: one per exercise that has a target.
+function targetsToRows(targets) {
+  const shared = shareableTargets(targets);
+  return Object.keys(shared).map((id) => ({
+    exerciseId: id,
+    weight: shared[id].weight,
+    reps: shared[id].reps,
+    changedAt: shared[id].changedAt,
+  }));
+}
+
 // One row of the Sheet's `exercises` tab.
 function exerciseToRow(entry) {
   return {
@@ -162,6 +180,25 @@ async function sendUnsynced() {
     sent++;
   }
 
+  // Then the targets (only when one has changed). They come after the workouts, so workouts
+  // still reach the Sheet if the script there is an older version without "saveTargets".
+  if (!settings.targetsSynced) {
+    const rows = targetsToRows(state.targets);
+    const snapshot = JSON.stringify(rows);
+    try {
+      await callScript(settings, { action: "saveTargets", targets: rows });
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+    // Only mark them sent if no target changed while we were sending.
+    if (JSON.stringify(targetsToRows(state.targets)) === snapshot) {
+      const latest = loadSettings();
+      latest.targetsSynced = true;
+      saveSettings(latest);
+    }
+    sent++;
+  }
+
   if (sent > 0) {
     // Load again: other settings may have changed during the sync.
     const latest = loadSettings();
@@ -227,12 +264,26 @@ function rowsToLibrary(rows) {
     .filter((entry) => entry.name !== "" && isValidLibraryExercise(entry));
 }
 
-// Fetches everything from the Sheet: { sessions, exercises }.
+// Sheet `targets` rows → { exerciseId: { weight, reps, changedAt } }. Rows that don't make sense are skipped.
+function rowsToTargets(rows) {
+  const targets = {};
+  for (const row of rows) {
+    const id = String(row.exerciseId || "");
+    const weight = Number(row.weight);
+    const reps = Number(row.reps);
+    if (!id || !isValidTargetNumbers(weight, reps)) continue;
+    targets[id] = { weight: weight, reps: reps, changedAt: String(row.changedAt || "") };
+  }
+  return targets;
+}
+
+// Fetches everything from the Sheet: { sessions, exercises, targets }.
 async function fetchSheetData() {
   const data = await callScript(loadSettings(), { action: "list" });
   return {
     sessions: rowsToSessions(Array.isArray(data.rows) ? data.rows : []),
     exercises: rowsToLibrary(Array.isArray(data.exercises) ? data.exercises : []),
+    targets: rowsToTargets(Array.isArray(data.targets) ? data.targets : []),
   };
 }
 

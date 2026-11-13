@@ -19,9 +19,10 @@ const SETS_COLUMNS = [
 ];
 
 const EXERCISES_SHEET = "exercises";
-// "inc" (weight step) is no longer used by the app and is left blank. The column stays so
-// Sheets created earlier keep the same column layout.
-const EXERCISE_COLUMNS = ["id", "name", "sets", "lo", "hi", "inc", "sourceProgramIds", "createdAt"];
+const EXERCISE_COLUMNS = ["id", "name", "sets", "lo", "hi", "sourceProgramIds", "createdAt"];
+
+const TARGETS_SHEET = "targets";
+const TARGET_COLUMNS = ["exerciseId", "weight", "reps", "changedAt"];
 
 // Every request from the app arrives here as a POST with a JSON body: { key, action, ... }.
 function doPost(e) {
@@ -43,11 +44,13 @@ function doPost(e) {
     if (body.action === "ping") return reply({ ok: true });
     if (body.action === "saveSession") return reply(saveSession(body));
     if (body.action === "saveExercises") return reply(saveExercises(body));
+    if (body.action === "saveTargets") return reply(saveTargets(body));
     if (body.action === "list") {
       return reply({
         ok: true,
         rows: readRows(getSetsSheet(), SETS_COLUMNS),
         exercises: readRows(getExercisesSheet(), EXERCISE_COLUMNS),
+        targets: readRows(getTargetsSheet(), TARGET_COLUMNS),
       });
     }
     return reply({ ok: false, error: "Unknown action." });
@@ -83,7 +86,23 @@ function getSetsSheet() {
 }
 
 function getExercisesSheet() {
-  return getSheet(EXERCISES_SHEET, EXERCISE_COLUMNS, ["A:A", "G:G", "H:H"]);
+  const sheet = getSheet(EXERCISES_SHEET, EXERCISE_COLUMNS, ["A:A", "F:F", "G:G"]);
+  removeOldIncColumn(sheet);
+  return sheet;
+}
+
+// Sheets made by older versions have an unused "inc" column between "hi" and "sourceProgramIds".
+// It is deleted the first time the tab is used, so the columns line up with EXERCISE_COLUMNS again.
+function removeOldIncColumn(sheet) {
+  const lastColumn = sheet.getLastColumn();
+  if (lastColumn === 0) return;
+  const header = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+  const index = header.indexOf("inc");
+  if (index !== -1) sheet.deleteColumn(index + 1);
+}
+
+function getTargetsSheet() {
+  return getSheet(TARGETS_SHEET, TARGET_COLUMNS, ["A:A", "D:D"]);
 }
 
 // Turns row objects into a grid of cell values in the order of `columns`.
@@ -135,6 +154,31 @@ function saveExercises(body) {
   if (merged.length > 0) {
     const values = toValues(merged, EXERCISE_COLUMNS);
     sheet.getRange(2, 1, values.length, EXERCISE_COLUMNS.length).setValues(values);
+  }
+  return { ok: true, saved: merged.length };
+}
+
+// Merges the app's targets into the `targets` tab by exerciseId. For each exercise the one with
+// the newer `changedAt` wins, and targets the app doesn't send are kept. A phone that hasn't
+// restored yet can therefore never wipe or roll back targets in the Sheet.
+function saveTargets(body) {
+  if (!Array.isArray(body.targets)) return { ok: false, error: "Missing targets." };
+  const sheet = getTargetsSheet();
+
+  const byId = new Map();
+  readRows(sheet, TARGET_COLUMNS).forEach((row) => byId.set(String(row.exerciseId), row));
+  body.targets.forEach((target) => {
+    const id = String(target.exerciseId);
+    const existing = byId.get(id);
+    if (!existing || String(target.changedAt || "") >= String(existing.changedAt || "")) byId.set(id, target);
+  });
+  const merged = Array.from(byId.values()).filter((row) => row.exerciseId !== "");
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, TARGET_COLUMNS.length).clearContent();
+  if (merged.length > 0) {
+    const values = toValues(merged, TARGET_COLUMNS);
+    sheet.getRange(2, 1, values.length, TARGET_COLUMNS.length).setValues(values);
   }
   return { ok: true, saved: merged.length };
 }

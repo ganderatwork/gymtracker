@@ -18,9 +18,10 @@ A personal workout-logging PWA for one user on an Android phone (Chrome). It run
 | `index.html` | App shell and markup |
 | `styles.css` | All styling, design tokens as CSS variables |
 | `program.js` | The training program as data (the only place to edit exercises) |
-| `storage.js` | Saving and reading sessions on the phone |
-| `sync.js` | Sending sessions to the Google Sheet and restoring from it |
-| `extras.js` | Extra exercises: the library, the "Add exercises" bottom sheet, extra blocks and their history rules |
+| `storage.js` | Saving and reading sessions, the library, targets and settings on the phone; backup files |
+| `sync.js` | Sending sessions, the library and targets to the Google Sheet and restoring from it |
+| `extras.js` | Extra exercises: the library, the "Add exercises" bottom sheet, extra blocks and their history |
+| `targets.js` | Per-exercise targets: one-time setup, suggestions (R1–R3), the target line and edit row on cards |
 | `app.js` | Screen logic and rendering |
 | `manifest.webmanifest` | PWA name, colors, icons |
 | `sw.js` | Service worker for offline use |
@@ -34,7 +35,7 @@ Each day has 4 blocks. Each block has 2 exercises, done as alternating sets: A1 
 
 Give every exercise slot a stable `id` (e.g. `A-bench`). History is looked up by this id, so never reuse an id for a different exercise. The same movement on two days gets two ids (e.g. `A-cable-lateral` and `C-cable-lateral`).
 
-There are no per-exercise weight steps: when the app says to add weight, the user picks the new weight.
+The app never raises a weight by itself: when the app says to add weight, the user picks the new weight. There are no weight steps anywhere.
 
 The letters A/B/C are internal keys only (used in ids and the data model). The UI never shows "Day A/B/C"; it shows the weekday name (`weekday` in `program.js`, e.g. "Monday") and the subtitle.
 
@@ -102,7 +103,9 @@ The letters A/B/C are internal keys only (used in ids and the data model). The U
   - Each block is a panel on `--bg` with a 1px `--border` border, 16px radius and 10px padding. 20px gap between blocks.
   - Inside: "BLOCK A" label in the accent color, "Alternate" on the right when it holds two exercises, then one card per exercise.
 - **Exercise card:**
-  - Slot code and name; "sets × rep range" with a "completed / total" counter (e.g. "1/3") on the right, in `--good` when all sets are complete, otherwise `--muted`.
+  - Slot code and name.
+  - Under the name: the target line, and a "Next target" suggestion when one is waiting (see "Targets").
+  - "sets × rep range" with a "completed / total" counter (e.g. "1/3") on the right, in `--good` when all sets are complete, otherwise `--muted`.
   - Optional ADD WEIGHT badge.
   - Column headers: SET · LAST TIME · KG · REPS.
   - One row per set.
@@ -114,7 +117,12 @@ The letters A/B/C are internal keys only (used in ids and the data model). The U
 
 ### Inputs and logging
 
-- **Weight input prefill:** the weight logged for the same set number last time. If that set is missing, use last time's first set. If the ADD WEIGHT badge shows "Top reps last time" or "Top reps as an extra", leave the weight empty instead (the user chooses the new weight). No history → empty. The prefill is a real value, so a set is usually complete as soon as reps are typed.
+- **Weight input prefill**, in this order:
+  1. If the ADD WEIGHT badge shows "Top reps last time", leave the weight empty (the user chooses the new, heavier weight). This also applies when there is a target.
+  2. Otherwise, with a target (for a program-sourced extra: its program target): the target weight, in every set.
+  3. With no target: the weight logged for the same set number last time. If that set is missing, use last time's first set. No history → empty.
+
+  The prefill is a real value, so a set is usually complete as soon as reps are typed.
 - **Set 1's weight carries over:** when the user leaves set 1's weight box after changing it, the new weight is copied into the exercise's later sets whose weight is empty or still equals set 1's previous weight (so sets changed by hand keep theirs). Leaving set 1 empty copies nothing. Later weights stay editable.
 - **Reps input** starts empty, with placeholder "–".
 - Both inputs use `type="text"` with `inputmode="decimal"` (weight) or `inputmode="numeric"` (reps), so Android opens the number keypad. Accept a comma or a dot as the decimal separator.
@@ -129,27 +137,77 @@ The letters A/B/C are internal keys only (used in ids and the data model). The U
 
 ### Rep colors
 
+**Reps inputs** compare against the target reps (for a program-sourced extra: its program target):
+
+| Reps | Color |
+|---|---|
+| Below target | Amber `#F5A524` |
+| At target | Normal text |
+| Above target | Green `#4ADE80` |
+
+With no target, reps inputs compare against the rep range, like the last-time column.
+
+**Last-time values** always compare against the rep range:
+
 | Reps | Color |
 |---|---|
 | Below range | Amber `#F5A524` |
-| Within range | Normal text (for last-time values: `#C9CFD6`) |
+| Within range | `#C9CFD6` |
 | At or above top | Green `#4ADE80` |
 
-Color is never the only signal: the ✓ and the badge text carry the same meaning.
+Color is never the only signal: the ✓, the badge text and the target line carry the same meaning.
 
 ### ADD WEIGHT badge
 
-Shown on an exercise card when either condition holds:
+It's the user's cue to choose a heavier weight; rule R1 (see "Targets") then turns that weight into the new target. Shown on an exercise card when either condition holds:
 
 1. **Earned last time:** every logged set last time reached the top of the range, and at least one set was logged. The text reads "Top reps last time. Go heavier today." The weight fields start empty.
 2. **Earned today:** every set logged today reached the top of the range. The text reads "All sets at top today. Go heavier next time." This takes priority if both are true.
-3. **Pushed by an extra** (program exercises only): see "Extra sets that push the program" below. The text reads "Top reps as an extra. Go heavier today.", and the weight fields start empty exactly like "Earned last time". "Earned today" still wins.
+
+Extra sets never trigger ADD WEIGHT on a program slot.
+
+### Targets (`targets.js`)
+
+A target is what to aim for next time on an exercise: a weight and a rep count. Sets always come from the program (or the extra's library entry); a target stores only weight and reps.
+
+- **Who has one:**
+  - Program slots and custom extras each have their own target, under their exercise id.
+  - Program-sourced extras (non-empty `sourceProgramIds`) never get their own target. See "Extra exercises".
+- **Storage:** `tt.targets` in localStorage, an object keyed by exerciseId → `{ weight, reps, changedAt, pending, dismissedFrom }`. Same try/catch rules as the other keys.
+  - `weight`, `reps`, `changedAt` are `null` while there is only a suggestion and no target yet.
+  - `pending`: `{ weight, reps, fromSessionId }` (a suggestion waiting for a decision) or `null`.
+  - `dismissedFrom`: the sessionId whose suggestion was dismissed, or `null`.
+- **One-time initialization** (flag `tt.targetsInitialized`):
+  - Runs the first time the app has at least one finished session: on start, after Restore from Sheet, or after Import.
+  - Every program slot and custom extra with history gets a target from the last finished session it was logged in:
+    - weight = the heaviest logged weight;
+    - reps = the average reps of all its logged sets in that session, rounded up;
+    - `changedAt` = that session's `finishedAt`.
+  - Existing targets are never overwritten. Exercises without history get no target.
+  - After initialization, missing targets are only created through suggestions (R3) or manual edits.
+- **Target line** (under the exercise name, small muted text button):
+  - Shows "Target 3 × 11 · 22.5 kg" (sets × reps · weight), or "No target yet".
+  - Tapping it turns the line into an edit row: a reps input and a kg input, styled like the set inputs.
+  - The edit commits on tap outside or Enter when both values are valid (weight ≥ 0, reps a whole number ≥ 1). If either is empty or invalid, it cancels and keeps the old target. A target can never be removed.
+  - Editing a target sets `changedAt` and clears `pending`.
+- **Suggestions:** evaluated after every set change, once **all sets of the exercise are complete** in the current session. Only one at a time, by priority:
+  - **R1 – New weight:** the first set (set 1) has weight > target weight → suggest that set's weight and reps.
+  - **R2 – Rep progression:** every set has weight equal to the target weight and reps ≥ target reps, and target reps < the range top → suggest target weight with target reps + 1.
+  - **R3 – No target yet:** suggest the first set's weight and reps.
+  - Never suggest on lower weights. Lowering a target is a manual edit.
+  - The suggestion is stored in `pending` (replacing an older waiting suggestion), unless `dismissedFrom` equals the current session.
+  - When a set is un-completed or changed, re-evaluate. A pending suggestion from the current session is removed if its rule no longer holds. Suggestions from earlier sessions stay until resolved.
+- **Showing a suggestion:** from the moment it appears until resolved (also in later sessions), the card shows "Next target: 3 × 11 · 22.5 kg" with three buttons:
+  - **Accept:** becomes the target.
+  - **Edit:** opens the edit row prefilled with the suggestion.
+  - **×:** dismiss. Sets `dismissedFrom` to the suggestion's `fromSessionId` and clears `pending`.
+- `pending` and `dismissedFrom` stay on the phone: they are never synced or put in backups.
 
 ### Extra exercises
 
 After the program's last block, the user can add extra blocks. Each holds one or two exercises, done as alternating sets exactly like program blocks.
 
-- **Exercise library:** `tt.exercises` in localStorage, an array of `{ id, name, sets, lo, hi, sourceProgramIds, createdAt }`. (Older entries may still have an unused `inc`; ignore it.)
+- **Exercise library:** `tt.exercises` in localStorage, an array of `{ id, name, sets, lo, hi, sourceProgramIds, createdAt }`. Any other field (e.g. the removed `inc`) is dropped on load.
   - Ids are `x-` plus a slug of the name (`x-cable-crunch`), with `-2`, `-3` if taken. Never reuse or change an id.
   - `sourceProgramIds` lists the program slot ids with the same name (e.g. `A-cable-lateral` and `C-cable-lateral`), or is empty for custom exercises. A new exercise typed with a program exercise's name is linked the same way.
   - Picking a program exercise creates (or reuses) a library entry with its own `x-` id and the program's sets and range (the first day it appears on wins). Program ids and program history are never touched.
@@ -161,17 +219,14 @@ After the program's last block, the user can add extra blocks. Each holds one or
   - A single extra block has a "+ Pair with…" button (same sheet, one selection, becomes the second slot).
   - Each extra card has a "Remove" button. If sets are complete, confirm first. It deletes that exercise's sets from today only. An empty block disappears; a pair becomes a single.
   - Header progress includes extra sets.
-- **History for extras** ("last time", prefill, badge). Use the first source that gives something:
-  1. **Extra history:** this exercise id's sets in the most recent finished session that has them. Custom exercises always use it. Program-linked exercises only if that session finished at most `EXTRA_HISTORY_MAX_DAYS` (30) days ago.
-  2. **Program ballpark** (program-linked only): the sets for any id in `sourceProgramIds` in the most recent finished session that has one of them. Show a small muted "PROGRAM" tag next to the rep range.
-  3. **Nothing:** "—", no prefill.
-
-  With source 1 or 2, prefill, filling empty fields on log, rep colors and both ADD WEIGHT rules work exactly as for program exercises, using the library entry's lo/hi. The 30-day rule only affects what is displayed; never delete or hide stored data.
-- **Extra sets that push the program:** for a program slot:
-  - Its "last program session" is the most recent finished session of its day; its working weight is the heaviest set it logged there. No sets there → no push.
-  - Take the most recent finished session where a library entry listing this slot in `sourceProgramIds` was logged. It must have finished at or after the slot's last program session.
-  - If any of those extra sets has weight ≥ the working weight and reps ≥ the slot's top of range, the slot gets ADD WEIGHT condition 3. Each slot is checked against its own range and weight. After one more program session at the slot, older extras no longer count.
-- Extras never affect finishing, the zero-sets rule, rotation or the wake lock.
+- **History for extras** ("last time", badge): this exercise id's own sets in the most recent finished session that has them, however old. Never used → "—". Rep colors in the last-time column and both ADD WEIGHT rules use the library entry's lo/hi.
+- **Targets for extras:**
+  - **Custom extras** (empty `sourceProgramIds`): their own target under their `x-` id, with the full target behavior (line, edit row, suggestions, prefill, colors).
+  - **Program-sourced extras** (non-empty `sourceProgramIds`):
+    - They show the program's target read-only: "Program target 3 × 11 · 22.5 kg" (sets from the extra's own library entry). It isn't tappable, and these cards get no suggestions. Extras never change program targets.
+    - When several program slots match, use the slot whose target has the lowest weight; on a tie, the fewest reps. Ignore slots without a target. If none have one, show no target line.
+    - Weight prefill and reps-input colors use that program target. Without one, they fall back to the extra's own last time and the rep range.
+- Extras never affect program slots (no ADD WEIGHT, no targets), finishing, the zero-sets rule, rotation or the wake lock.
 
 ### Finishing
 
@@ -210,9 +265,20 @@ The owner rests by feel. Do not add a timer.
 
 Logged extra sets go into the same `sets` array as program sets.
 
+```js
+// tt.targets: one entry per exercise id
+{
+  "A-bench": {
+    weight: 62.5, reps: 8, changedAt: "ISO date",                  // null while there is no target yet
+    pending: { weight: 65, reps: 6, fromSessionId: "…" } | null,   // local only
+    dismissedFrom: "sessionId" | null                              // local only
+  }
+}
+```
+
 ### Storage on the phone (`storage.js`)
 
-- Store all sessions as one JSON array in `localStorage` under the key `tt.sessions`. Store the exercise library under `tt.exercises` and settings under `tt.settings`. The data stays small (about 150 sessions a year), so `localStorage` is enough.
+- Store all sessions as one JSON array in `localStorage` under the key `tt.sessions`. Store the exercise library under `tt.exercises`, targets under `tt.targets` (plus the flag `tt.targetsInitialized`) and settings under `tt.settings`. The data stays small (about 150 sessions a year), so `localStorage` is enough.
 - Save after every change to a set (completed, edited or cleared).
 - On first start, call `navigator.storage.persist()` to ask Chrome not to clear the data.
 - Wrap all reads and writes in try/catch. Corrupt or missing data must never crash the app; start empty instead and show a warning.
@@ -221,7 +287,9 @@ Logged extra sets go into the same `sets` array as program sets.
 
 - **Sheet layout:**
   - Tab `sets`, one row per logged set. Columns: `sessionId, date, day, exerciseId, exerciseName, setNumber, weightKg, reps, loggedAt`. Extra sets use the library name in `exerciseName`.
-  - Tab `exercises`, the library. Columns: `id, name, sets, lo, hi, inc, sourceProgramIds, createdAt` (`sourceProgramIds` as a comma-separated string; `inc` is no longer used and left blank, kept only so existing Sheets keep their column layout).
+  - Tab `exercises`, the library. Columns: `id, name, sets, lo, hi, sourceProgramIds, createdAt` (`sourceProgramIds` as a comma-separated string). The script deletes the old `inc` column from Sheets made by earlier versions.
+    - **TODO, the next time `Code.gs` changes:** the `inc` cleanup is temporary. Once the owner confirms the `inc` column is gone from the Sheet, remove `removeOldIncColumn()` and its call in `getExercisesSheet()` in `Code.gs`. Also remove `withoutOldFields()` in `storage.js` (and its two uses), then remove this note.
+  - Tab `targets`. Columns: `exerciseId, weight, reps, changedAt`. Only real targets; `pending` and `dismissedFrom` are never sent.
 - **Apps Script:**
   - Deployed as a web app: "Execute as: me", "Who has access: anyone".
   - The script stores the secret key in Script Properties (`SECRET_KEY`), never in the code.
@@ -231,12 +299,14 @@ Logged extra sets go into the same `sets` array as program sets.
   - Body shape: `{ key, action, ... }`.
   - `action: "saveSession"`: replace all rows with that `sessionId` (delete, then append). Retries can then never create duplicates.
   - `action: "saveExercises"`: merge the full library into the `exercises` tab by id (the app's entries win; rows the app doesn't have are kept, so an incomplete phone library can't wipe the Sheet).
-  - `action: "list"`: return all set rows and the library (`{ ok, rows, exercises }`), for restoring.
+  - `action: "saveTargets"`: send all current targets. The script merges them into the `targets` tab by exerciseId, keeping the newer `changedAt`; rows the app doesn't send are kept, so a phone that hasn't restored yet can't wipe or roll back the Sheet.
+  - `action: "list"`: return all set rows, the library and the targets (`{ ok, rows, exercises, targets }`), for restoring.
   - `action: "ping"`: return `{ ok: true }` to test the connection.
   - Responses are JSON: `{ ok: true, ... }` or `{ ok: false, error }`.
 - **When to sync:** on finish, every finished session with `synced: false` is sent. The same check runs on app start and on the browser's `online` event. On success, set `synced: true`.
-  - Any library change sets `exercisesSynced: false` in `tt.settings`. The next sync sends `saveExercises` first, then sessions, and sets it back to `true` on success.
-- **Restore from Sheet:** merge the library by id first (local wins), then rebuild sessions from the rows and merge them with local data by `sessionId`. Local data wins for sessions not yet synced.
+  - Any library change sets `exercisesSynced: false` in `tt.settings`. Any target change (edit, Accept, initialization) sets `targetsSynced: false` and starts a background sync.
+  - Order of one sync: `saveExercises` (if needed), then sessions, then `saveTargets` (if needed). Each flag goes back to `true` on success. Targets come last so workouts still sync if the deployed script is older.
+- **Restore from Sheet:** merge the library by id first (local wins), then targets by exerciseId (newer `changedAt` wins), then rebuild sessions from the rows and merge them with local data by `sessionId`. Local data wins for sessions not yet synced.
 
 ### Settings screen
 
@@ -244,10 +314,10 @@ Reached from a small gear icon button in the header. Contains:
 
 - **Apps Script URL** and **secret key** inputs, saved to `tt.settings`.
 - A **"Test connection"** button (sends `ping`).
-- **Sync status:** last successful sync time, number of unsynced sessions, and whether the exercise library is synced.
+- **Sync status:** last successful sync time, number of unsynced sessions, and whether the exercise library and the targets are synced.
 - **"Restore from Sheet"**, with a confirmation dialog first.
-- **"Export backup"**: downloads `{ version: 2, sessions, exercises }` as `training-backup-YYYY-MM-DD.json`.
-- **"Import backup"**: loads that file and merges the library by id, then sessions by `sessionId`, with confirmation first. Old backups (a plain sessions array) still work.
+- **"Export backup"**: downloads `{ version: 3, sessions, exercises, targets }` as `training-backup-YYYY-MM-DD.json`. `targets` holds only `{ weight, reps, changedAt }` per exercise id.
+- **"Import backup"**: loads that file and merges the library by id, then targets by exerciseId (newer `changedAt` wins), then sessions by `sessionId`, with confirmation first. Versions 1 (a plain sessions array) and 2 (no targets) still work.
 
 ## PWA
 
@@ -330,9 +400,16 @@ Each milestone ends with a short "how to test it" note for the owner.
 7. **Restore from Sheet.** Test by clearing the app's site data in Chrome, then restoring.
 8. **Extra exercises.** Built in four steps:
    1. Library storage and the bottom sheet (search, multi-select, create).
-   2. Extra blocks: alternating order, logging, the three history sources, prefill, colors, badge, remove, pair-with, resume after reload, and the "extra sets that push the program" rule. The debug fake history includes extras older and newer than 30 days, and one that beats the program.
+   2. Extra blocks: alternating order, logging, the three history sources, prefill, colors, badge, remove, pair-with, resume after reload, and the "extra sets that push the program" rule (all replaced in milestone 9). The debug fake history includes extras older and newer than 30 days, and one that beats the program.
    3. Sync (`exercises` tab, `saveExercises`, `list` with library), backup v2 and restore. Update `Code.gs` and deploy a new version.
    4. This file and the README.
+9. **Targets and extras cleanup.**
+   - `targets.js` and `tt.targets`: one-time initialization, the target line and edit row, suggestions R1–R3 with Accept / Edit / ×, and prefill and reps colors from the target.
+   - Program-sourced extras show the lowest program target read-only.
+   - Remove the 30-day rule, the PROGRAM ballpark tag and fallback, the extras-push-program rule and every leftover of the old weight step (`inc`).
+   - Sync: the `targets` tab, `saveTargets`, and `list` with targets. Backup v3. Update `Code.gs` and deploy a new version.
+   - The debug fake history covers initialization, R1, R2, R3, dismissing, and the lowest-target choice for Cable lateral raise.
+   - This file and the README.
 
 ## Out of scope for now
 

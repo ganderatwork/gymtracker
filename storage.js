@@ -60,7 +60,6 @@ function requestPersistentStorage() {
 const EXERCISES_KEY = "tt.exercises";
 
 // True if `e` looks like a library entry: { id, name, sets, lo, hi, sourceProgramIds, createdAt }.
-// Older entries may still carry an unused `inc` (weight step); that is simply ignored.
 function isValidLibraryExercise(e) {
   return Boolean(
     e &&
@@ -74,6 +73,19 @@ function isValidLibraryExercise(e) {
   );
 }
 
+// Keeps only the fields the app uses. Older entries had a weight step `inc`, which is dropped here.
+function withoutOldFields(e) {
+  return {
+    id: e.id,
+    name: e.name,
+    sets: e.sets,
+    lo: e.lo,
+    hi: e.hi,
+    sourceProgramIds: e.sourceProgramIds,
+    createdAt: e.createdAt,
+  };
+}
+
 // Same safety rules as loadSessions(): never crash, keep a copy of unreadable data.
 function loadExercises() {
   let raw = null;
@@ -82,7 +94,7 @@ function loadExercises() {
     if (raw === null) return [];
     const list = JSON.parse(raw);
     if (!Array.isArray(list)) throw new Error("Saved library is not a list");
-    return list.filter(isValidLibraryExercise);
+    return list.filter(isValidLibraryExercise).map(withoutOldFields);
   } catch (error) {
     try {
       if (raw !== null) localStorage.setItem(EXERCISES_KEY + ".corrupt", raw);
@@ -127,6 +139,139 @@ function makeExerciseId(name, library) {
   return id;
 }
 
+// ---------- Targets ----------
+// tt.targets is an object keyed by exercise id:
+//   { weight, reps, changedAt, pending, dismissedFrom }
+// weight/reps/changedAt are null while there is only a suggestion and no target yet.
+// pending:       { weight, reps, fromSessionId } – a suggestion waiting for Accept / Edit / ×, or null.
+// dismissedFrom: the session id whose suggestion was dismissed with ×, or null.
+
+const TARGETS_KEY = "tt.targets";
+// Set once the one-time "targets from history" setup has run (see initTargets() in targets.js).
+const TARGETS_INIT_KEY = "tt.targetsInitialized";
+
+// Valid target numbers: weight ≥ 0, reps a whole number ≥ 1 (the same rules as a complete set).
+function isValidTargetNumbers(weight, reps) {
+  return Number.isFinite(weight) && weight >= 0 && Number.isInteger(reps) && reps >= 1;
+}
+
+// Returns a clean copy of one saved target entry, or null if it is unusable.
+function cleanTargetEntry(t) {
+  if (!t || typeof t !== "object") return null;
+  const hasTarget = isValidTargetNumbers(t.weight, t.reps);
+  const p = t.pending;
+  const pending =
+    p && isValidTargetNumbers(p.weight, p.reps) && typeof p.fromSessionId === "string"
+      ? { weight: p.weight, reps: p.reps, fromSessionId: p.fromSessionId }
+      : null;
+  const entry = {
+    weight: hasTarget ? t.weight : null,
+    reps: hasTarget ? t.reps : null,
+    changedAt: hasTarget && typeof t.changedAt === "string" ? t.changedAt : null,
+    pending: pending,
+    dismissedFrom: typeof t.dismissedFrom === "string" ? t.dismissedFrom : null,
+  };
+  // An entry with nothing in it is not worth keeping.
+  if (!hasTarget && !entry.pending && !entry.dismissedFrom) return null;
+  return entry;
+}
+
+// Same safety rules as loadSessions(): never crash, keep a copy of unreadable data.
+function loadTargets() {
+  let raw = null;
+  try {
+    raw = localStorage.getItem(TARGETS_KEY);
+    if (raw === null) return {};
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Saved targets are not an object");
+    const targets = {};
+    for (const id of Object.keys(data)) {
+      const entry = cleanTargetEntry(data[id]);
+      if (entry) targets[id] = entry;
+    }
+    return targets;
+  } catch (error) {
+    try {
+      if (raw !== null) localStorage.setItem(TARGETS_KEY + ".corrupt", raw);
+    } catch (copyError) {
+      // Nothing more we can do.
+    }
+    storageWarning = "Saved targets could not be read, so the app started without targets.";
+    return {};
+  }
+}
+
+function saveTargets(targets) {
+  try {
+    localStorage.setItem(TARGETS_KEY, JSON.stringify(targets));
+    return true;
+  } catch (error) {
+    storageWarning = "Could not save targets on this phone. Storage may be full or blocked.";
+    return false;
+  }
+}
+
+function targetsInitialized() {
+  try {
+    return localStorage.getItem(TARGETS_INIT_KEY) === "true";
+  } catch (error) {
+    return false;
+  }
+}
+
+function markTargetsInitialized() {
+  try {
+    localStorage.setItem(TARGETS_INIT_KEY, "true");
+  } catch (error) {
+    // If this fails, the setup simply runs again next time. It never overwrites existing targets.
+  }
+}
+
+// Only the parts of the targets that leave the phone (Sheet and backup files):
+// { "A-bench": { weight, reps, changedAt } }. Suggestions and dismissals stay local.
+function shareableTargets(targets) {
+  const result = {};
+  for (const id of Object.keys(targets)) {
+    const t = targets[id];
+    if (t.weight !== null) result[id] = { weight: t.weight, reps: t.reps, changedAt: t.changedAt };
+  }
+  return result;
+}
+
+// Merges incoming targets ({ id: { weight, reps, changedAt } }) into the local ones by exercise id.
+// The newer `changedAt` wins. Local suggestions and dismissals are kept.
+// Returns { targets, updatedCount, localNewer }. `localNewer` = the phone has targets the other
+// side doesn't have (or has older), so they should be sent to the Sheet.
+function mergeTargets(local, incoming) {
+  const targets = {};
+  for (const id of Object.keys(local)) targets[id] = Object.assign({}, local[id]);
+  let updatedCount = 0;
+
+  for (const id of Object.keys(incoming)) {
+    const t = incoming[id];
+    if (!t || !isValidTargetNumbers(t.weight, t.reps)) continue;
+    const changedAt = typeof t.changedAt === "string" ? t.changedAt : "";
+    const mine = targets[id];
+    if (mine && mine.weight !== null && (mine.changedAt || "") >= changedAt) continue;
+    targets[id] = {
+      weight: t.weight,
+      reps: t.reps,
+      changedAt: changedAt || null,
+      pending: mine ? mine.pending : null,
+      dismissedFrom: mine ? mine.dismissedFrom : null,
+    };
+    updatedCount++;
+  }
+
+  const localNewer = Object.keys(targets).some((id) => {
+    const t = targets[id];
+    if (t.weight === null) return false;
+    const other = incoming[id];
+    return !other || other.weight !== t.weight || other.reps !== t.reps;
+  });
+  return { targets: targets, updatedCount: updatedCount, localNewer: localNewer };
+}
+
 // ---------- Settings ----------
 
 const SETTINGS_KEY = "tt.settings";
@@ -145,6 +290,8 @@ function loadSettings() {
     lastSyncAt: typeof saved.lastSyncAt === "string" ? saved.lastSyncAt : null,
     // false = the exercise library has changed and must be sent to the Sheet.
     exercisesSynced: saved.exercisesSynced !== false,
+    // false = a target has changed and must be sent to the Sheet.
+    targetsSynced: saved.targetsSynced !== false,
   };
 }
 
@@ -160,13 +307,14 @@ function saveSettings(settings) {
 
 // ---------- Backup files ----------
 
-// Downloads everything as training-backup-YYYY-MM-DD.json: { version: 2, sessions, exercises }.
-function downloadBackup(sessions, exercises) {
+// Downloads everything as training-backup-YYYY-MM-DD.json: { version: 3, sessions, exercises, targets }.
+// `targets` only holds { weight, reps, changedAt } per exercise (see shareableTargets()).
+function downloadBackup(sessions, exercises, targets) {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   const date = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate());
 
-  const backup = { version: 2, sessions: sessions, exercises: exercises };
+  const backup = { version: 3, sessions: sessions, exercises: exercises, targets: shareableTargets(targets) };
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   // A temporary hidden link with `download` makes the browser save the file.
@@ -179,16 +327,18 @@ function downloadBackup(sessions, exercises) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// Reads the text of a backup file. Returns { sessions, exercises }, or null if it isn't a backup.
-// Old backups (before extras) are a plain list of sessions; those still work.
+// Reads the text of a backup file. Returns { sessions, exercises, targets }, or null if it isn't a backup.
+// Version 1 backups are a plain list of sessions, version 2 has no targets; both still work.
 function parseBackup(text) {
   try {
     const data = JSON.parse(text);
-    if (Array.isArray(data)) return { sessions: data.filter(isValidSession), exercises: [] };
+    if (Array.isArray(data)) return { sessions: data.filter(isValidSession), exercises: [], targets: {} };
     if (data && Array.isArray(data.sessions)) {
+      const targets = data.targets && typeof data.targets === "object" && !Array.isArray(data.targets) ? data.targets : {};
       return {
         sessions: data.sessions.filter(isValidSession),
-        exercises: Array.isArray(data.exercises) ? data.exercises.filter(isValidLibraryExercise) : [],
+        exercises: Array.isArray(data.exercises) ? data.exercises.filter(isValidLibraryExercise).map(withoutOldFields) : [],
+        targets: targets,
       };
     }
     return null;

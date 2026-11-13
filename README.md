@@ -77,21 +77,23 @@ If you're offline when finishing, it says "Saved · will sync when online". It i
 
 ### 4.5 Updating the script (keeps the same URL)
 
-Whenever `Code.gs` changes in this repo (for example when extra exercises were added), update the deployed script:
+Whenever `Code.gs` changes in this repo (for example when targets were added), update the deployed script:
 
 1. Open the Sheet → **Extensions** → **Apps Script**.
 2. Select all the old code, paste in the new [`apps-script/Code.gs`](apps-script/Code.gs), and click **Save**.
 3. Click **Deploy** → **Manage deployments** → select the deployment → pencil icon (edit).
 4. Under **Version**, choose **New version** → **Deploy**.
 
-The URL stays the same, so nothing changes in the app. Skipping step 3–4 means the old code keeps running. With an old script, syncing extra exercises fails with "Unknown action."
+The URL stays the same, so nothing changes in the app. If you skip steps 3–4, the old code keeps running. With an old script, syncing fails with "Unknown action." (workouts are still sent first; the rest is retried at the next sync).
 
-The extra exercises are stored in a second tab, `exercises`, which the script creates by itself.
+The script creates its tabs by itself: `exercises` for extra exercises and `targets` for your targets (`exerciseId, weight, reps, changedAt`).
+
+**Old `inc` column:** Sheets made by older versions have an unused `inc` column in the `exercises` tab. The new script deletes it by itself the first time it touches that tab (on the next sync or restore). If you'd rather do it by hand: open the `exercises` tab, right-click the header of the `inc` column (column F) → **Delete column**. Do this only after the new script is deployed.
 
 ## 5. Restore
 
-- **From the Sheet:** Settings → **Restore from Sheet**. Extra exercises and workouts from the Sheet are added to the phone. Workouts on the phone that aren't synced yet are never overwritten.
-- **From a backup file:** Settings → **Export backup** saves a `training-backup-YYYY-MM-DD.json` file with all workouts and extra exercises. **Import backup** adds what's missing from such a file (older backup files without extra exercises still work). Everything already on the phone is kept as it is.
+- **From the Sheet:** Settings → **Restore from Sheet**. Extra exercises, targets and workouts from the Sheet are added to the phone. Workouts on the phone that aren't synced yet are never overwritten. For targets, the most recently changed one wins.
+- **From a backup file:** Settings → **Export backup** saves a `training-backup-YYYY-MM-DD.json` file with all workouts, extra exercises and targets. **Import backup** adds what's missing from such a file (older backup files without extra exercises or targets still work). Everything already on the phone is kept, except targets that are older than the ones in the file.
 
 To test restoring: Chrome → **⋮** → **Settings** → **Site settings** → **All sites** → your github.io address → **Delete data**. Open the app, enter the URL and key again, and tap **Restore from Sheet**.
 
@@ -99,14 +101,18 @@ To test restoring: Chrome → **⋮** → **Settings** → **Site settings** →
 
 Add `?debug` to the address (e.g. `https://ganderatwork.github.io/gymtracker/?debug`) to show two buttons:
 
-- **Debug: fake history** adds fake finished workouts, to see the ADD WEIGHT badge, the rep colors and extra exercises:
-  - Cable crunch (custom extra) at the top of its range: ADD WEIGHT.
-  - Pec deck on Monday: its own extra history from a week ago.
-  - Face pull: its extra history is 40 days old, so it shows the program's numbers with a PROGRAM tag.
-  - Monday's overhead triceps: "Top reps as an extra", because an extra beat the program.
+- **Debug: fake history** adds fake finished workouts (Monday a week ago, Wednesday 5 days ago, Friday 3 days ago) and **replaces all targets on that device** with ones made from them by the real one-time setup. Use it on a test device or a local copy (`python -m http.server`), not on your real phone data. Then on Monday:
+  - **Initialization:** every card shows "Target …". Chest-supported row logged 8, 8, 7 reps, so its target is 3 × 8 · 25 kg (average rounded up).
+  - **R1:** Chest-supported row: set 1 at 27.5 kg, all three sets 8 reps → "Next target: 3 × 8 · 27.5 kg".
+  - **R2:** Romanian deadlift (target 3 × 7 · 30 kg): all three sets 7 reps → "Next target: 3 × 8 · 30 kg".
+  - **R3:** Overhead cable triceps extension has no history ("No target yet"). Log all three sets → it suggests your set 1.
+  - **Dismiss:** Barbell bench press already has a suggestion waiting from last Monday. Try Accept, Edit and ×.
+  - **ADD WEIGHT:** bench press (and Cable crunch) reached the top of the range, so the weight fields start empty.
+  - **Program target for an extra:** switch to Wednesday and add "Cable lateral raise" as an extra. Monday's slot has 50 kg × 15, Friday's 45 kg × 13, so it shows the lighter "Program target 3 × 13 · 45 kg" and prefills 45.
+  - **Custom extra:** add "Cable crunch": its own target 3 × 15 · 40 kg, tappable, with suggestions.
 
-  They are never sent to the Sheet (but the fake extra exercises are added to your library).
-- **Debug: clear all** deletes every workout and extra exercise on that device.
+  The fake workouts and targets are never sent to the Sheet, unless you change a target afterwards: then all targets on that device are sent. The fake extra exercises are added to your library.
+- **Debug: clear all** deletes every workout, extra exercise and target on that device.
 
 To remove the helper: delete `debug.js`, its `<script>` line in `index.html`, its line in `APP_FILES` in `sw.js`, and the "debug panel" styles at the end of `styles.css`. Then bump `CACHE_VERSION`.
 
@@ -117,9 +123,10 @@ To remove the helper: delete `debug.js`, its `<script>` line in `index.html`, it
 | `index.html` | App shell and markup |
 | `styles.css` | All styling; colors are CSS variables at the top |
 | `program.js` | The training program (the only place to edit exercises) |
-| `storage.js` | Saving workouts, extra exercises and settings on the phone, backup files |
-| `sync.js` | Sending workouts to the Google Sheet and restoring from it |
+| `storage.js` | Saving workouts, extra exercises, targets and settings on the phone, backup files |
+| `sync.js` | Sending workouts, extra exercises and targets to the Google Sheet and restoring from it |
 | `extras.js` | Extra exercises: library, "Add exercises" sheet, extra blocks and their history |
+| `targets.js` | Targets: one-time setup, "Next target" suggestions, the target line and its edit row |
 | `app.js` | Screens, logging rules, settings |
 | `manifest.webmanifest` | App name, colors and icons for installing |
 | `sw.js` | Service worker: offline copy and updates |

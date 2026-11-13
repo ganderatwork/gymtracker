@@ -549,16 +549,107 @@ button {
   margin-top: 4px;
 }
 
-.program-tag {
-  margin-left: 6px;
-  padding: 1px 6px;
-  border: 1px solid var(--border-input);
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+/* ---------- Targets (under the exercise name) ---------- */
+/* "Target 3 × 11 · 22.5 kg": small and muted, but still a 44px tap target. */
+.target-btn {
+  display: block;
+  min-height: 44px;
+  margin: -6px 0 -10px;
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--muted);
+  text-align: left;
+}
+
+/* "Program target …" on extras from the program: read-only, so plain text. */
+.target-line {
+  margin: 2px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.target-edit {
+  margin: 6px 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.target-edit-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* Looks like the set inputs. */
+.target-input {
+  width: 64px;
+  height: 44px;
+  padding: 0 4px;
+  background: var(--bg);
+  border: 1px solid var(--border-input);
+  border-radius: 10px;
+  font-size: 17px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.target-input[data-target-field="weight"] {
+  width: 80px;
+}
+
+.target-input::placeholder {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* "Next target: …" with Accept / Edit / ×. */
+.suggestion {
+  margin-top: 6px;
+  padding: 0 0 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--border-input);
+  border-radius: 10px;
+}
+
+.suggestion-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.suggestion-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.suggestion-btn.accept {
+  color: var(--good);
+}
+
+.suggestion-btn.dismiss {
+  color: var(--muted);
+}
+
+.suggestion-btn svg {
+  width: 18px;
+  height: 18px;
 }
 
 /* ---------- Bottom sheet ---------- */
