@@ -12,7 +12,7 @@ const PROGRAM = {
       {
         letter: "A",
         exercises: [
-          { id: "A-bench", slot: "A1", name: "Barbell bench press", sets: 3, repMin: 6, repMax: 8 },
+          { id: "A-incline-db", slot: "A1", name: "Incline DB press (30°)", sets: 3, repMin: 8, repMax: 12 },
           { id: "A-cs-row", slot: "A2", name: "Chest-supported row", sets: 3, repMin: 8, repMax: 10 },
         ],
       },
@@ -47,7 +47,7 @@ const PROGRAM = {
       {
         letter: "A",
         exercises: [
-          { id: "B-incline-db", slot: "A1", name: "Incline DB press (30°)", sets: 3, repMin: 8, repMax: 12 },
+          { id: "B-bench", slot: "A1", name: "Barbell bench press", sets: 3, repMin: 6, repMax: 8 },
           { id: "B-wide-pulldown", slot: "A2", name: "Wide-grip lat pulldown", sets: 3, repMin: 8, repMax: 12 },
         ],
       },
@@ -82,7 +82,7 @@ const PROGRAM = {
       {
         letter: "A",
         exercises: [
-          { id: "C-smith-incline", slot: "A1", name: "Low-incline Smith press", sets: 3, repMin: 6, repMax: 10 },
+          { id: "C-incline-db", slot: "A1", name: "Incline DB press (30°)", sets: 3, repMin: 8, repMax: 12 },
           { id: "C-cable-row", slot: "A2", name: "Single-arm cable row", sets: 3, repMin: 10, repMax: 12 },
         ],
       },
@@ -109,4 +109,12 @@ const PROGRAM = {
       },
     ],
   },
+};
+
+// Exercise slots that were removed from the program. Their old workouts, targets and notes stay
+// stored under these ids (never reuse them), so the names are kept here for the Google Sheet.
+const RETIRED_EXERCISES = {
+  "A-bench": "Barbell bench press",
+  "B-incline-db": "Incline DB press (30°)",
+  "C-smith-incline": "Low-incline Smith press",
 };

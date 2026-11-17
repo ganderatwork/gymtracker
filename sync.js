@@ -59,7 +59,7 @@ function exerciseNameById(exerciseId) {
       if (exercise) return exercise.name;
     }
   }
-  return "";
+  return RETIRED_EXERCISES[exerciseId] || "";
 }
 
 // "2026-10-26" in the phone's own time zone.

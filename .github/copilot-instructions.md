@@ -34,7 +34,9 @@ A personal workout-logging PWA for one user on an Android phone (Chrome). It run
 
 Each day has 4 blocks. Each block has 2 exercises, done as alternating sets: A1 set 1, A2 set 1, A1 set 2, and so on. When one exercise has more sets than the other, its extra sets come last.
 
-Give every exercise slot a stable `id` (e.g. `A-bench`). History is looked up by this id, so never reuse an id for a different exercise. The same movement on two days gets two ids (e.g. `A-cable-lateral` and `C-cable-lateral`).
+Give every exercise slot a stable `id` (e.g. `B-bench`). History is looked up by this id, so never reuse an id for a different exercise. The same movement on two days gets two ids (e.g. `A-cable-lateral` and `C-cable-lateral`).
+
+When a slot is removed or moved to another day, it gets a new id. The old id goes into `RETIRED_EXERCISES` in `program.js` (id → name, so old rows still get a name in the Sheet) and is never reused. Retired so far: `A-bench`, `B-incline-db`, `C-smith-incline` (November 2026: Smith press dropped, bench and incline DB swapped days). A one-time update (`runMigrations()` in `app.js`) copied their targets and notes to the new slots.
 
 The app never raises a weight by itself: when the app says to add weight, the user picks the new weight. There are no weight steps anywhere.
 
@@ -44,7 +46,7 @@ The letters A/B/C are internal keys only (used in ids and the data model). The U
 
 | Slot | Exercise | Sets | Reps |
 |---|---|---|---|
-| A1 | Barbell bench press | 3 | 6–8 |
+| A1 | Incline DB press (30°) | 3 | 8–12 |
 | A2 | Chest-supported row | 3 | 8–10 |
 | B1 | Romanian deadlift | 3 | 6–8 |
 | B2 | Lat pulldown (neutral or medium grip) | 3 | 8–12 |
@@ -57,7 +59,7 @@ The letters A/B/C are internal keys only (used in ids and the data model). The U
 
 | Slot | Exercise | Sets | Reps |
 |---|---|---|---|
-| A1 | Incline DB press (30°) | 3 | 8–12 |
+| A1 | Barbell bench press | 3 | 6–8 |
 | A2 | Wide-grip lat pulldown | 3 | 8–12 |
 | B1 | Leg press (feet high and wide) | 3 | 10–12 |
 | B2 | Face pull | 3 | 12–15 |
@@ -70,7 +72,7 @@ The letters A/B/C are internal keys only (used in ids and the data model). The U
 
 | Slot | Exercise | Sets | Reps |
 |---|---|---|---|
-| A1 | Low-incline Smith press | 3 | 6–10 |
+| A1 | Incline DB press (30°) | 3 | 8–12 |
 | A2 | Single-arm cable row | 3 | 10–12 |
 | B1 | Leg extension | 3 | 12–15 |
 | B2 | Reverse pec deck | 3 | 12–20 |
@@ -135,7 +137,7 @@ The letters A/B/C are internal keys only (used in ids and the data model). The U
   - When it stops being complete, remove it. Clearing reps is the "undo".
 - Typed text is kept in memory while the app is open; only complete sets are saved.
 - No log button, no vibration, and no filling empty fields from last time.
-- **Skipped sets** stay empty. They are not saved and do not count against the add-weight rule.
+- **Skipped sets** stay empty. They are not saved, and an exercise with a skipped set doesn't earn ADD WEIGHT.
 
 ### Rep colors
 
@@ -163,8 +165,10 @@ Color is never the only signal: the ✓, the badge text and the target line carr
 
 It's the user's cue to choose a heavier weight; rule R1 (see "Targets") then turns that weight into the new target. Shown on an exercise card when either condition holds:
 
-1. **Earned last time:** every logged set last time reached the top of the range, and at least one set was logged. The text reads "Top reps last time. Go heavier today." The weight fields start empty.
-2. **Earned today:** every set logged today reached the top of the range. The text reads "All sets at top today. Go heavier next time." This takes priority if both are true.
+Both rules only count once **every** set of the exercise (set 1 to its set count) is logged; a skipped or not-yet-done set means not earned.
+
+1. **Earned last time:** last time, every set was logged and reached the top of the range. The text reads "Top reps last time. Go heavier today." The weight fields start empty.
+2. **Earned today:** today, every set is complete and reached the top of the range. The text reads "All sets at top today. Go heavier next time." This takes priority if both are true.
 
 Extra sets never trigger ADD WEIGHT on a program slot.
 
@@ -269,7 +273,7 @@ The owner rests by feel. Do not add a timer.
   finishedAt: "ISO date" | null,
   synced: false,
   sets: [
-    { exerciseId: "A-bench", setNumber: 1, weight: 62.5, reps: 8, loggedAt: "ISO date" }
+    { exerciseId: "B-bench", setNumber: 1, weight: 62.5, reps: 8, loggedAt: "ISO date" }
   ],
   // Extra blocks in the order added, so added-but-unlogged extras survive a reload.
   // Old sessions without `extras` are treated as having none.
@@ -282,7 +286,7 @@ Logged extra sets go into the same `sets` array as program sets.
 ```js
 // tt.targets: one entry per exercise id
 {
-  "A-bench": {
+  "B-bench": {
     weight: 62.5, reps: 8, changedAt: "ISO date",                  // null while there is no target yet
     pending: { weight: 65, reps: 6, fromSessionId: "…" } | null,   // local only
     dismissedFrom: "sessionId" | null                              // local only
@@ -291,13 +295,13 @@ Logged extra sets go into the same `sets` array as program sets.
 
 // tt.notes: one entry per exercise id
 {
-  "C-smith-incline": { text: "Bench notch 3", changedAt: "ISO date" }  // text "" = deleted
+  "C-incline-db": { text: "Bench notch 3", changedAt: "ISO date" }  // text "" = deleted
 }
 ```
 
 ### Storage on the phone (`storage.js`)
 
-- Store all sessions as one JSON array in `localStorage` under the key `tt.sessions`. Store the exercise library under `tt.exercises`, targets under `tt.targets` (plus the flag `tt.targetsInitialized`), notes under `tt.notes` and settings under `tt.settings`. The data stays small (about 150 sessions a year), so `localStorage` is enough.
+- Store all sessions as one JSON array in `localStorage` under the key `tt.sessions`. Store the exercise library under `tt.exercises`, targets under `tt.targets` (plus the flag `tt.targetsInitialized`), notes under `tt.notes`, settings under `tt.settings` and the names of one-time data updates that already ran under `tt.migrations`. The data stays small (about 150 sessions a year), so `localStorage` is enough.
 - Save after every change to a set (completed, edited or cleared).
 - On first start, call `navigator.storage.persist()` to ask Chrome not to clear the data.
 - Wrap all reads and writes in try/catch. Corrupt or missing data must never crash the app; start empty instead and show a warning.

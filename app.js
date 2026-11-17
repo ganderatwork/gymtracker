@@ -98,18 +98,24 @@ function lastTimeSet(exercise, setNumber) {
   return lastTimeSets(exercise).find((s) => s.setNumber === setNumber) || null;
 }
 
-function allAtTop(sets, exercise) {
-  return sets.length > 0 && sets.every((s) => s.reps >= exercise.repMax);
+// True when every set of the exercise (1 to exercise.sets) is logged and reached the top of the range.
+// A skipped or not-yet-done set means "not earned", so one great first set is never enough.
+function allSetsAtTop(sets, exercise) {
+  for (let setNumber = 1; setNumber <= exercise.sets; setNumber++) {
+    const set = sets.find((s) => s.setNumber === setNumber);
+    if (!set || set.reps < exercise.repMax) return false;
+  }
+  return true;
 }
 
 function earnedLastTime(exercise) {
-  return allAtTop(lastTimeSets(exercise), exercise);
+  return allSetsAtTop(lastTimeSets(exercise), exercise);
 }
 
 function earnedToday(exercise) {
   const session = unfinishedSession(state.day);
   const sets = session ? session.sets.filter((s) => s.exerciseId === exercise.id) : [];
-  return allAtTop(sets, exercise);
+  return allSetsAtTop(sets, exercise);
 }
 
 // Weight to pre-fill:
@@ -969,10 +975,80 @@ function registerServiceWorker() {
   });
 }
 
+// ---------- One-time data updates ----------
+
+// November 2026 program change: Friday's Smith press became Incline DB press, Monday got
+// Incline DB press and Wednesday got Barbell bench press. The new slots have new ids, so this:
+//   1. copies targets and notes from the old slots (bench → Wednesday, incline → Monday and Friday),
+//      only where the new slot has none yet;
+//   2. re-links library extras to the program slots that now carry their name;
+//   3. changes every library exercise with 2 sets to 3 sets.
+// Old workouts are not touched. The Sheet gets the changes on the next sync.
+function runMigrations() {
+  const name = "2026-11-a1-swap";
+  if (migrationDone(name)) return;
+  const now = new Date().toISOString();
+
+  const copies = [
+    ["A-bench", "B-bench"],
+    ["B-incline-db", "A-incline-db"],
+    ["B-incline-db", "C-incline-db"],
+  ];
+  let targetsChanged = false;
+  let notesChanged = false;
+  for (const [from, to] of copies) {
+    const fromTarget = ownTarget(from);
+    if (fromTarget && !ownTarget(to)) {
+      const entry = state.targets[to] || emptyTargetEntry();
+      entry.weight = fromTarget.weight;
+      entry.reps = fromTarget.reps;
+      entry.changedAt = now;
+      state.targets[to] = entry;
+      targetsChanged = true;
+    }
+    const fromNote = state.notes[from];
+    if (fromNote && fromNote.text && !state.notes[to]) {
+      state.notes[to] = { text: fromNote.text, changedAt: now };
+      notesChanged = true;
+    }
+  }
+
+  const programByName = programExercisesByName();
+  let libraryChanged = false;
+  for (const entry of state.library) {
+    // Same name as a program exercise → linked to exactly those slots. Otherwise drop removed slots.
+    const match = programByName.get(entry.name.trim().toLowerCase());
+    const ids = match ? match.ids.slice() : entry.sourceProgramIds.filter((id) => !(id in RETIRED_EXERCISES));
+    if (ids.join(",") !== entry.sourceProgramIds.join(",")) {
+      entry.sourceProgramIds = ids;
+      libraryChanged = true;
+    }
+    if (entry.sets === 2) {
+      entry.sets = 3;
+      libraryChanged = true;
+    }
+  }
+
+  if (targetsChanged) {
+    saveTargets(state.targets);
+    markTargetsChanged();
+  }
+  if (notesChanged) {
+    saveNotes(state.notes);
+    markNotesChanged();
+  }
+  if (libraryChanged) {
+    saveExercises(state.library);
+    markLibraryChanged();
+  }
+  markMigrationDone(name);
+}
+
 // ---------- Start ----------
 
 requestPersistentStorage();
 initTargets();
+runMigrations();
 state.suggested = suggestedDay();
 
 // Resume an unfinished workout if there is one (the most recently started).

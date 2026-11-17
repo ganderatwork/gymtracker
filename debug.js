@@ -76,15 +76,15 @@
     saveSessions(sessions);
 
     // Targets: start over and run the real one-time setup on the fake history.
-    // Bench press (Monday A1) also gets a suggestion "from last Monday", to try Accept / Edit / ×.
+    // Bench press (Wednesday A1) also gets a suggestion "from last Wednesday", to try Accept / Edit / ×.
     state.sessions = sessions;
     state.library = library;
     state.targets = {
-      "A-bench": {
+      "B-bench": {
         weight: null,
         reps: null,
         changedAt: null,
-        pending: { weight: 22.5, reps: 6, fromSessionId: a.id },
+        pending: { weight: 22.5, reps: 6, fromSessionId: b.id },
         dismissedFrom: null,
       },
     };
@@ -94,11 +94,11 @@
       // ignore
     }
     initTargets();
-    // Sample notes (only where there is no note yet): one to edit on Monday's bench press, and one on
+    // Sample notes (only where there is no note yet): one to edit on Wednesday's bench press, and one on
     // Friday's cable lateral raise that shows as "Program note" when you add it as an extra.
     const notes = loadNotes();
     const sampleNotes = {
-      "A-bench": "Weight without the bar (20 kg).",
+      "B-bench": "Weight without the bar (20 kg).",
       "C-cable-lateral": "Cable at hip height.\nHandle, no cuff.",
     };
     for (const id of Object.keys(sampleNotes)) {

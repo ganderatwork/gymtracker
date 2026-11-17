@@ -227,6 +227,32 @@ function markTargetsInitialized() {
   }
 }
 
+// ---------- One-time data updates ----------
+// tt.migrations is a list of names of one-time updates that already ran on this phone
+// (see runMigrations() in app.js).
+
+const MIGRATIONS_KEY = "tt.migrations";
+
+function migrationDone(name) {
+  try {
+    const list = JSON.parse(localStorage.getItem(MIGRATIONS_KEY) || "[]");
+    return Array.isArray(list) && list.includes(name);
+  } catch (error) {
+    return false;
+  }
+}
+
+function markMigrationDone(name) {
+  try {
+    let list = JSON.parse(localStorage.getItem(MIGRATIONS_KEY) || "[]");
+    if (!Array.isArray(list)) list = [];
+    if (!list.includes(name)) list.push(name);
+    localStorage.setItem(MIGRATIONS_KEY, JSON.stringify(list));
+  } catch (error) {
+    // If this fails, the update runs again next time. Each update is safe to repeat.
+  }
+}
+
 // Only the parts of the targets that leave the phone (Sheet and backup files):
 // { "A-bench": { weight, reps, changedAt } }. Suggestions and dismissals stay local.
 function shareableTargets(targets) {
