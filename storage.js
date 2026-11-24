@@ -6,9 +6,10 @@ const SESSIONS_KEY = "tt.sessions";
 // Set when reading or writing fails. app.js shows it as a warning.
 let storageWarning = null;
 
-// True if `s` looks like a session this app can use.
+// True if `s` looks like a session this app can use. Old finished Friday ("C") workouts count;
+// an unfinished one is dropped, because that workout no longer exists (see RETIRED_DAYS).
 function isValidSession(s) {
-  return Boolean(s && typeof s.id === "string" && PROGRAM[s.day] && Array.isArray(s.sets));
+  return Boolean(s && typeof s.id === "string" && isKnownSessionDay(s.day, s.finishedAt) && Array.isArray(s.sets));
 }
 
 // Returns the list of saved sessions, or an empty list if there is none (or it is unreadable).

@@ -1,6 +1,6 @@
 # gymtracker – project spec
 
-A personal workout-logging PWA for one user on an Android phone (Chrome). It runs a fixed 3-day full-body program, shows last time's numbers next to this time's inputs, and flags when to add weight. Data is saved on the phone first and backed up to a Google Sheet.
+A personal workout-logging PWA for one user on an Android phone (Chrome). It runs two fixed full-body workouts, A and B, done in turn, shows last time's numbers next to this time's inputs, and flags when to add weight. Data is saved on the phone first and backed up to a Google Sheet.
 
 ## How to work in this repo
 
@@ -32,75 +32,69 @@ A personal workout-logging PWA for one user on an Android phone (Chrome). It run
 
 ## The program (`program.js`)
 
-Each day has 4 blocks. Each block has 2 exercises, done as alternating sets: A1 set 1, A2 set 1, A1 set 2, and so on. When one exercise has more sets than the other, its extra sets come last.
+Two workouts, **A** and **B**, done in turn (A B A one week, B A B the next). Each workout has 5 blocks (A–E). Each block has 2 exercises, done as alternating sets: A1 set 1, A2 set 1, A1 set 2, and so on. Every program exercise has 3 sets.
 
-Give every exercise slot a stable `id` (e.g. `B-bench`). History is looked up by this id, so never reuse an id for a different exercise. The same movement on two days gets two ids (e.g. `A-cable-lateral` and `C-cable-lateral`).
+Give every exercise slot a stable `id` (e.g. `B-bench`). History is looked up by this id, so never reuse an id for a different exercise. No exercise is in both workouts (A has Cable lateral raise, B has DB lateral raise).
 
-When a slot is removed or moved to another day, it gets a new id. The old id goes into `RETIRED_EXERCISES` in `program.js` (id → name, so old rows still get a name in the Sheet) and is never reused. Retired so far: `A-bench`, `B-incline-db`, `C-smith-incline` (November 2026: Smith press dropped, bench and incline DB swapped days). A one-time update (`runMigrations()` in `app.js`) copied their targets and notes to the new slots.
+- **Moving or removing a slot:** it gets a new id (prefix = its workout). The old id goes into `RETIRED_EXERCISES` in `program.js` (id → name, so old rows still get a name in the Sheet) and is never reused.
+- **`previousIds`:** a slot that took over from old slots lists their ids in `previousIds`. Their logged sets count as this slot's history ("last time", the one-time target setup). Targets and notes were copied over once (see "One-time updates").
+- **Retired so far:**
+  - `A-bench`, `B-incline-db`, `C-smith-incline` (November 2026: Smith press dropped, bench and incline DB swapped days);
+  - `A-rdl`, `A-ohp`, `B-leg-press`, `B-face-pull`, `B-cable-fly`, `B-leg-curl`, `B-hammer-curl` and every `C-` id (November 2026: Monday/Wednesday/Friday became A/B).
+- **Retired workouts:** `RETIRED_DAYS` (`["C"]`, the old Friday). Finished sessions with that `day` stay as history (on the phone, in backups and restored from the Sheet). An unfinished one is dropped on load.
 
 The app never raises a weight by itself: when the app says to add weight, the user picks the new weight. There are no weight steps anywhere.
 
-The letters A/B/C are internal keys only (used in ids and the data model). The UI never shows "Day A/B/C"; it shows the weekday name (`weekday` in `program.js`, e.g. "Monday") and the subtitle.
+The UI shows each workout as its letter and name, e.g. "A · Incline Inferno" (`name` in `program.js`). The `subtitle` (what the workout holds) only shows in the picker.
 
-### Day A (Monday): heavy press and hinge
+### A · Incline Inferno: incline press, leg press, vertical pull
 
-| Slot | Exercise | Sets | Reps |
-|---|---|---|---|
-| A1 | Incline DB press (30°) | 3 | 8–12 |
-| A2 | Chest-supported row | 3 | 8–10 |
-| B1 | Romanian deadlift | 3 | 6–8 |
-| B2 | Lat pulldown (neutral or medium grip) | 3 | 8–12 |
-| C1 | Standing barbell press | 3 | 6–10 |
-| C2 | EZ-bar curl | 3 | 10–12 |
-| D1 | Cable lateral raise | 3 | 12–15 |
-| D2 | Overhead cable triceps extension | 3 | 10–12 |
+| Slot | Exercise | Sets | Reps | Takes over from |
+|---|---|---|---|---|
+| A1 | Incline DB press (30°) | 3 | 8–12 | `B-incline-db`, `C-incline-db` |
+| A2 | Chest-supported row | 3 | 8–12 | |
+| B1 | Leg press (feet high and wide) | 3 | 10–15 | `B-leg-press` |
+| B2 | Lat pulldown (neutral grip) | 3 | 8–12 | |
+| C1 | Seated leg curl | 3 | 10–15 | `B-leg-curl` |
+| C2 | Cable lateral raise | 3 | 12–20 | `C-cable-lateral` |
+| D1 | Machine shoulder press (neutral grip if available) | 3 | 8–12 | `A-ohp` |
+| D2 | Face pull | 3 | 15–20 | `B-face-pull` |
+| E1 | EZ-bar curl | 3 | 8–12 | |
+| E2 | Overhead cable triceps extension | 3 | 10–15 | |
 
-### Day B (Wednesday): moderate reps
+### B · Bench Boss: flat press, hinge, wide pull
 
-| Slot | Exercise | Sets | Reps |
-|---|---|---|---|
-| A1 | Barbell bench press | 3 | 6–8 |
-| A2 | Wide-grip lat pulldown | 3 | 8–12 |
-| B1 | Leg press (feet high and wide) | 3 | 10–12 |
-| B2 | Face pull | 3 | 12–15 |
-| C1 | Cable fly (mid height) | 3 | 12–15 |
-| C2 | DB lateral raise | 3 | 12–20 |
-| D1 | Seated leg curl | 3 | 10–12 |
-| D2 | Hammer curl | 3 | 10–12 |
-
-### Day C (Friday): machines and higher reps
-
-| Slot | Exercise | Sets | Reps |
-|---|---|---|---|
-| A1 | Incline DB press (30°) | 3 | 8–12 |
-| A2 | Single-arm cable row | 3 | 10–12 |
-| B1 | Leg extension | 3 | 12–15 |
-| B2 | Reverse pec deck | 3 | 12–20 |
-| C1 | Pec deck | 3 | 12–15 |
-| C2 | Cable lateral raise | 4 | 12–20 |
-| D1 | Incline DB curl | 3 | 10–12 |
-| D2 | Triceps pushdown | 3 | 10–12 |
+| Slot | Exercise | Sets | Reps | Takes over from |
+|---|---|---|---|---|
+| A1 | Barbell bench press | 3 | 6–10 | `A-bench` |
+| A2 | Lat pulldown (overhand, just outside shoulder width) | 3 | 8–12 | |
+| B1 | Single-arm cable row | 3 | 8–12 | `C-cable-row` |
+| B2 | Pec deck | 3 | 12–15 | `C-pec-deck` |
+| C1 | Romanian deadlift | 3 | 8–10 | `A-rdl` |
+| C2 | Reverse pec deck | 3 | 12–20 | `C-rev-pec-deck` |
+| D1 | DB reverse lunge | 3 | 8–12 | |
+| D2 | DB lateral raise | 3 | 12–20 | |
+| E1 | Incline DB curl | 3 | 10–15 | `C-incline-curl` |
+| E2 | Triceps pushdown | 3 | 10–15 | `C-pushdown` |
 
 ## Behavior
 
-### Choosing the day
+### Choosing the workout
 
-1. On open, the app selects **the next day in the rotation**: after the last finished session's day A comes B, after B comes C, after C comes A.
-2. With no finished sessions, it picks by weekday: Monday → A, Wednesday → B, Friday → C. Any other weekday → A.
-3. Tapping the header's top line opens a day picker: three rows (Monday / Wednesday / Friday, each with its subtitle). Tapping a row switches to that day and closes the picker.
-4. When the user has picked a day other than the suggested one, the top line shows a small amber "MANUAL" tag. No date and no "next in rotation" text.
-5. An unfinished session for a day survives switching days and closing the app; the app resumes it.
+1. On open, the app selects **the other workout than the last finished A or B session**: after A comes B, after B comes A. Old Friday (C) sessions are ignored for this. With no finished A/B session, it picks A.
+2. Tapping the header's top line opens a picker: two rows ("A · Incline Inferno" / "B · Bench Boss", each with its subtitle below). Tapping a row switches to that workout and closes the picker.
+3. When the user has picked the other one than suggested (i.e. the same as last time), the top line shows a small amber "MANUAL" tag. No date and no "next in rotation" text.
+4. An unfinished session survives switching workouts and closing the app; the app resumes it.
 
 ### "Last time"
 
-"Last time" for an exercise means the sets logged for that exercise id in **the most recent finished session of the same day** (not the calendar week). No history → show "—".
-
+"Last time" for a program exercise means its sets in **the most recent finished session in which this id or one of its `previousIds` was logged**, in any workout. A session where the exercise was skipped doesn't count. No history → show "—".
 ### Workout screen
 
 - **Header (compact, two lines):**
-  - Top line: one button reading "Monday – Heavy press & hinge" (weekday bold, subtitle muted), optional MANUAL tag, and a chevron on the right. Tapping it opens/closes the day picker.
+  - Top line: one button reading "A · Incline Inferno" (bold), optional MANUAL tag, and a chevron on the right. Tapping it opens/closes the picker.
   - Second line: a thin progress bar with "logged / total sets" to its right.
-  - The day picker only appears below these lines while open.
+  - The picker only appears below these lines while open.
 - **Blocks:**
   - Every block (program and extra) is always open, in order; the page simply scrolls. No collapsing and no auto-open.
   - Each block is a panel on `--bg` with a 1px `--border` border, 16px radius and 10px padding. 20px gap between blocks.
@@ -141,7 +135,7 @@ The letters A/B/C are internal keys only (used in ids and the data model). The U
 
 ### Rep colors
 
-**Reps inputs** compare against the target reps (for a program-sourced extra: its program target):
+**Reps inputs** compare against the target reps (for a program-sourced extra: its program target). Once the exercise has a logged set today, that is the target it had at that moment (see "Targets": frozen for today):
 
 | Reps | Color |
 |---|---|
@@ -185,7 +179,7 @@ A target is what to aim for next time on an exercise: a weight and a rep count. 
   - `dismissedFrom`: the sessionId whose suggestion was dismissed, or `null`.
 - **One-time initialization** (flag `tt.targetsInitialized`):
   - Runs the first time the app has at least one finished session: on start, after Restore from Sheet, or after Import.
-  - Every program slot and custom extra with history gets a target from the last finished session it was logged in:
+  - Every program slot and custom extra with history gets a target from the last finished session it was logged in (for a program slot, its id or one of its `previousIds`):
     - weight = the heaviest logged weight;
     - reps = the average reps of all its logged sets in that session, rounded up;
     - `changedAt` = that session's `finishedAt`.
@@ -207,13 +201,18 @@ A target is what to aim for next time on an exercise: a weight and a rep count. 
   - **Accept:** becomes the target.
   - **Edit:** opens the edit row prefilled with the suggestion.
   - **×:** dismiss. Sets `dismissedFrom` to the suggestion's `fromSessionId` and clears `pending`.
+- **Frozen for today:** when an exercise gets its first logged set in a session, its current target (for a program-sourced extra: its program target) is saved in the session's `targetsUsed`. For the rest of that workout, that saved target drives its weight prefill, reps colors and suggestions (R1–R3), even if the target is changed meanwhile. So raising the target after hitting it doesn't take the green away from today's sets; the new target counts from the next workout.
+  - The target line always shows the current target. An exercise not started yet today uses the current target.
+  - When the exercise has no logged sets left today (cleared or removed), its entry is removed, so it follows the current target again.
+  - A suggestion is only made if it is higher than the current target (more weight, or the same weight with more reps). So the same suggestion doesn't come straight back after Accept.
+  - `targetsUsed` is deleted when the workout is finished. Sessions without it use the current target.
 - `pending` and `dismissedFrom` stay on the phone: they are never synced or put in backups.
 
 ### Notes (`notes.js`)
 
 A free-text note per exercise, for things that are hard to remember (bench position on the Smith machine, whether the kg include the bar, …). It is permanent per exercise, not per workout.
 
-- **Who has one:** program slots and custom extras each have their own note, under their exercise id (so Monday's and Friday's Cable lateral raise each have one). Program-sourced extras show the program's note read-only (see below).
+- **Who has one:** program slots and custom extras each have their own note, under their exercise id. Program-sourced extras show the program's note read-only (see below).
 - **Storage:** `tt.notes` in localStorage, an object keyed by exerciseId → `{ text, changedAt }`. Same try/catch rules as the other keys. A deleted note stays as `{ text: "", changedAt }`, so the deletion also reaches the Sheet.
 - **On the card** (at the bottom, under the set rows):
   - With text: the note as muted read-only text (line breaks kept). Tapping it opens the text box.
@@ -227,12 +226,12 @@ After the program's last block, the user can add extra blocks. Each holds one or
 
 - **Exercise library:** `tt.exercises` in localStorage, an array of `{ id, name, sets, lo, hi, sourceProgramIds, createdAt }`. Any other field (e.g. the removed `inc`) is dropped on load.
   - Ids are `x-` plus a slug of the name (`x-cable-crunch`), with `-2`, `-3` if taken. Never reuse or change an id.
-  - `sourceProgramIds` lists the program slot ids with the same name (e.g. `A-cable-lateral` and `C-cable-lateral`), or is empty for custom exercises. A new exercise typed with a program exercise's name is linked the same way.
-  - Picking a program exercise creates (or reuses) a library entry with its own `x-` id and the program's sets and range (the first day it appears on wins). Program ids and program history are never touched.
+  - `sourceProgramIds` lists the program slot ids with the same name (e.g. `A-cable-lateral`), or is empty for custom exercises. A new exercise typed with a program exercise's name is linked the same way.
+  - Picking a program exercise creates (or reuses) a library entry with its own `x-` id and the program's sets and range. Program ids and program history are never touched.
   - New exercise defaults: 3 sets, 10–12 reps. Name required and unique (case-insensitive).
 - **UI:**
   - After the last program block: an "EXTRAS" label, the extra blocks, then a dashed "+ Add exercises" button (52px).
-  - Extra blocks look and behave like program blocks: always open, letters E, F, … with slots E1/E2, "Alternate" only for pairs. After adding a block (or pairing), the page scrolls to it.
+  - Extra blocks look and behave like program blocks: always open, letters after the program's last block (F, G, … with slots F1/F2), "Alternate" only for pairs. After adding a block (or pairing), the page scrolls to it.
   - "+ Add exercises" opens a bottom sheet (max 80% height, own scroll, `--surface`). Close button, tapping outside, Escape and Android back close it. Contents: search field, "Your exercises" (most recently used first), "From the program" (each name once, skipping names in the library), "+ New exercise" form. Rows are 48px with name and "sets × lo–hi"; max 2 selected; exercises already in today's workout are hidden. Sticky button: "Add 1 exercise" / "Add pair".
   - A single extra block has a "+ Pair with…" button (same sheet, one selection, becomes the second slot).
   - Each extra card has a "Remove" button. If sets are complete, confirm first. It deletes that exercise's sets from today only. An empty block disappears; a pair becomes a single.
@@ -244,7 +243,7 @@ After the program's last block, the user can add extra blocks. Each holds one or
     - They show the program's target read-only: "Program target 3 × 11 · 22.5 kg" (sets from the extra's own library entry). It isn't tappable, and these cards get no suggestions. Extras never change program targets.
     - When several program slots match, use the slot whose target has the lowest weight; on a tie, the fewest reps. Ignore slots without a target. If none have one, show no target line.
     - Weight prefill and reps-input colors use that program target. Without one, they fall back to the extra's own last time and the rep range.
-- Extras never affect program slots (no ADD WEIGHT, no targets), finishing, the zero-sets rule, rotation or the wake lock.
+- Extras never affect program slots (no ADD WEIGHT, no targets), finishing, the zero-sets rule, which workout is suggested, or the wake lock.
 
 ### Finishing
 
@@ -277,9 +276,14 @@ The owner rests by feel. Do not add a timer.
   ],
   // Extra blocks in the order added, so added-but-unlogged extras survive a reload.
   // Old sessions without `extras` are treated as having none.
-  extras: [{ block: "E", exerciseIds: ["x-cable-crunch", "x-pec-deck"] }]
+  extras: [{ block: "F", exerciseIds: ["x-cable-crunch", "x-pec-deck"] }],
+  // Only while in progress: the target each started exercise had at its first logged set
+  // (null = no target then). See "Frozen for today". Deleted on finish.
+  targetsUsed: { "B-bench": { weight: 62.5, reps: 8 } }
 }
 ```
+
+`day` is `"A"` or `"B"`. Old finished sessions may have `"C"` (see `RETIRED_DAYS`).
 
 Logged extra sets go into the same `sets` array as program sets.
 
@@ -295,7 +299,7 @@ Logged extra sets go into the same `sets` array as program sets.
 
 // tt.notes: one entry per exercise id
 {
-  "C-incline-db": { text: "Bench notch 3", changedAt: "ISO date" }  // text "" = deleted
+  "A-incline-db": { text: "Bench notch 3", changedAt: "ISO date" }  // text "" = deleted
 }
 ```
 
@@ -305,6 +309,18 @@ Logged extra sets go into the same `sets` array as program sets.
 - Save after every change to a set (completed, edited or cleared).
 - On first start, call `navigator.storage.persist()` to ask Chrome not to clear the data.
 - Wrap all reads and writes in try/catch. Corrupt or missing data must never crash the app; start empty instead and show a warning.
+
+### One-time updates (`runMigrations()` in `app.js`)
+
+Each runs once per phone (its name is stored in `tt.migrations`), oldest first. Old workouts are never changed. Changed targets, notes and library entries are marked for the next sync.
+
+- **`2026-11-a1-swap`:** bench and incline DB swapped days; copied their targets and notes to the new slots; library exercises with 2 sets got 3.
+- **`2026-11-ab-split`:** Monday/Wednesday/Friday became A/B.
+  - Every slot with `previousIds` gets the target and note of the old slot changed most recently, where it has none yet.
+  - Library extras are re-linked to the new program. A name match links to that slot; a link to a moved slot follows it. An extra that loses all links becomes a custom extra and gets the removed slot's target and note.
+  - Every library exercise gets 3 sets.
+  - Extra blocks of a workout in progress are relettered (F, G, …).
+  - An unfinished old Friday session is deleted.
 
 ### Sync to Google Sheet (`sync.js` + `apps-script/Code.gs`)
 
@@ -367,7 +383,7 @@ Dark only. Match the approved mockup.
 | Token | Value | Use |
 |---|---|---|
 | `--bg` | `#0E1013` | Page background, input background |
-| `--surface` | `#171A1F` | Cards, day picker rows |
+| `--surface` | `#171A1F` | Cards, workout picker rows |
 | `--surface-2` | `#13161A` | Header and footer areas |
 | `--border` | `#262B33` | Card borders |
 | `--border-input` | `#2E343D` | Inputs and outline buttons |
@@ -383,7 +399,7 @@ Dark only. Match the approved mockup.
 - Inter (Google Fonts, weights 400–700), falling back to `system-ui, sans-serif`.
 - `font-variant-numeric: tabular-nums` on everything, so digits line up.
 - Sizes:
-  - Day title (weekday): 20px bold; subtitle next to it 15px.
+  - Workout title ("A · Incline Inferno"): 20px bold. In the picker: name 15px semibold, subtitle 13px muted below it.
   - Exercise name: 17px semibold.
   - Inputs: 17px bold.
   - Last-time values: 15px.
@@ -395,7 +411,7 @@ Dark only. Match the approved mockup.
 - Full-height column: header (not scrolling), then scrolling content.
 - Content padding 16px. Cards have 16px corner radius and 12px inner padding.
 - Set row grid columns: `22px minmax(0,1fr) 80px 64px`, gap 6px.
-- Inputs 44px tall, radius 10px. Header top line at least 44px tall; day picker rows 48px tall.
+- Inputs 44px tall, radius 10px. Header top line at least 44px tall; workout picker rows at least 48px tall.
 - Every tap target is at least 44px.
 - Respect the phone's safe areas: `viewport-fit=cover` plus `env(safe-area-inset-*)` padding.
 - Transitions max 150ms. Nothing decorative.
@@ -440,6 +456,14 @@ Each milestone ends with a short "how to test it" note for the owner.
     - `notes.js` and `tt.notes`: read-only note at the bottom of the card, tap to edit, a pencil with "Add note" when empty. Program-sourced extras show the program note read-only.
     - Sync: the `notes` tab, `saveNotes`, and `list` with notes. Backup v4. Update `Code.gs` and deploy a new version.
     - The debug fake history adds sample notes (bench press, and Friday's cable lateral raise for the program note).
+11. **Two alternating workouts (A/B).**
+    - `program.js`: workouts A and B with 5 blocks each, all 3 sets, `name` instead of `weekday`, `previousIds`, `RETIRED_DAYS`, the new retired ids.
+    - Suggest the other workout than the last finished A/B one; two-row picker; MANUAL when picking the same as last time.
+    - "Last time" across workouts, including `previousIds`. Old finished Friday sessions stay valid everywhere (phone, backup, Sheet restore).
+    - Targets frozen for today once an exercise is started (`targetsUsed`).
+    - One-time update `2026-11-ab-split`. Extra blocks start at F.
+    - The debug fake history: an old Friday session feeding B's Pec deck through `previousIds`, A and B sessions, the target freeze.
+    - This file and the README.
 
 ## Out of scope for now
 

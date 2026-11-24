@@ -109,7 +109,7 @@ function extraExercise(id, slot) {
   };
 }
 
-// The extra blocks of a session, e.g. [{ letter: "E", isExtra: true, exercises: [E1, E2] }].
+// The extra blocks of a session, e.g. [{ letter: "F", isExtra: true, exercises: [F1, F2] }].
 // Old sessions without `extras` simply have none.
 function extraBlocks(session) {
   if (!session || !Array.isArray(session.extras)) return [];
@@ -122,10 +122,12 @@ function extraBlocks(session) {
     }));
 }
 
-// Keeps the letters in order (E, F, G, …) after a block is added or removed.
+// Keeps the letters in order after a block is added or removed. They continue after the
+// program's last block: with blocks A–E, the extras are F, G, …
 function relabelExtras(session) {
+  const first = "A".charCodeAt(0) + PROGRAM[session.day].blocks.length;
   session.extras.forEach((extra, i) => {
-    extra.block = String.fromCharCode("E".charCodeAt(0) + i);
+    extra.block = String.fromCharCode(first + i);
   });
 }
 
@@ -164,6 +166,7 @@ function removeExtraExercise(exerciseId) {
   }
 
   session.sets = session.sets.filter((s) => s.exerciseId !== exerciseId);
+  unfreezeTarget(session, exerciseId);
   // A pair that loses one exercise becomes a single; an empty block disappears.
   session.extras = session.extras
     .map((extra) => ({ block: extra.block, exerciseIds: extra.exerciseIds.filter((id) => id !== exerciseId) }))

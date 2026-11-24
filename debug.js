@@ -44,6 +44,28 @@
     };
   }
 
+  // An old 3-day-program Friday ("C") workout, logged under the retired ids. Its sets show up as
+  // "last time" for the slots that took over those ids (`previousIds` in program.js).
+  function fakeOldFriday(daysAgo) {
+    const finished = new Date(Date.now() - daysAgo * DAY_MS);
+    const started = new Date(finished.getTime() - 60 * 60 * 1000);
+    const sets = [];
+    const add = (exerciseId, weight, repsPerSet) => {
+      repsPerSet.forEach((reps, i) => {
+        sets.push({ exerciseId, setNumber: i + 1, weight, reps, loggedAt: finished.toISOString() });
+      });
+    };
+    add("C-pec-deck", 35, [15, 15, 15]); // top of Pec deck's 12–15 → ADD WEIGHT on B's Pec deck
+    return {
+      id: "debug-" + started.toISOString() + "-C",
+      day: "C",
+      startedAt: started.toISOString(),
+      finishedAt: finished.toISOString(),
+      synced: true,
+      sets: sets,
+    };
+  }
+
   function fillFakeHistory() {
     const ok = confirm(
       "Add fake workouts, and REPLACE all targets on this device with targets made from them?\n\n" +
@@ -52,31 +74,30 @@
     if (!ok) return;
 
     const sessions = loadSessions().filter((s) => !s.id.startsWith("debug-"));
-    // A a week ago, B 5 days ago, C 3 days ago → the rotation suggests A next.
-    // Monday's overhead triceps (D2) is left out, so it has no target: test R3 there.
+    // Old Friday 10 days ago, A a week ago, B 3 days ago → the app suggests A next.
+    // A's overhead triceps (E2) is left out, so it has no target: test R3 there.
+    // B's Pec deck is left out, so its "last time" and target come from the old Friday workout.
+    const c = fakeOldFriday(10);
     const a = fakeSession("A", 7, ["A-oh-triceps"]);
-    const b = fakeSession("B", 5);
-    const c = fakeSession("C", 3);
+    const b = fakeSession("B", 3, ["B-pec-deck"]);
 
     // Extras. Library entries with these names are reused if they already exist.
     const library = loadExercises();
     const crunch = ensureEntry(library, "Cable crunch", 3, 12, 15, []);
-    const pecDeck = ensureEntry(library, "Pec deck", 3, 12, 15, ["C-pec-deck"]);
-    // Linked to both program slots. Monday's is 50 kg × 15, Friday's 45 kg × 13 (from the patterns
-    // above), so as an extra it shows Friday's lighter "Program target 3 × 13 · 45 kg".
-    ensureEntry(library, "Cable lateral raise", 3, 12, 15, ["A-cable-lateral", "C-cable-lateral"]);
+    const pecDeck = ensureEntry(library, "Pec deck", 3, 12, 15, ["B-pec-deck"]);
+    ensureEntry(library, "Cable lateral raise", 3, 12, 20, ["A-cable-lateral"]);
     saveExercises(library);
 
-    // Pec deck as an extra on Monday: last time from its own use, target from Friday's program slot.
-    addExtra(a, "E", pecDeck, 30, [15, 13, 13]);
+    // Pec deck as an extra on A: last time from its own use, target from B's program slot.
+    addExtra(a, "F", pecDeck, 30, [15, 13, 13]);
     // Custom extra at the top of its range: ADD WEIGHT, and its own target 3 × 15 · 40 kg.
-    addExtra(c, "E", crunch, 40, [15, 15, 15]);
+    addExtra(b, "F", crunch, 40, [15, 15, 15]);
 
-    sessions.push(a, b, c);
+    sessions.push(c, a, b);
     saveSessions(sessions);
 
     // Targets: start over and run the real one-time setup on the fake history.
-    // Bench press (Wednesday A1) also gets a suggestion "from last Wednesday", to try Accept / Edit / ×.
+    // Bench press (B, A1) also gets a suggestion "from the last B workout", to try Accept / Edit / ×.
     state.sessions = sessions;
     state.library = library;
     state.targets = {
@@ -94,12 +115,12 @@
       // ignore
     }
     initTargets();
-    // Sample notes (only where there is no note yet): one to edit on Wednesday's bench press, and one on
-    // Friday's cable lateral raise that shows as "Program note" when you add it as an extra.
+    // Sample notes (only where there is no note yet): one to edit on B's bench press, and one on
+    // A's cable lateral raise that shows as "Program note" when you add it as an extra on B.
     const notes = loadNotes();
     const sampleNotes = {
       "B-bench": "Weight without the bar (20 kg).",
-      "C-cable-lateral": "Cable at hip height.\nHandle, no cuff.",
+      "A-cable-lateral": "Cable at hip height.\nHandle, no cuff.",
     };
     for (const id of Object.keys(sampleNotes)) {
       if (!notes[id] || !notes[id].text) notes[id] = { text: sampleNotes[id], changedAt: new Date().toISOString() };
@@ -111,7 +132,6 @@
     saveSettings(settings);
     location.reload();
   }
-
   function ensureEntry(library, name, sets, lo, hi, sourceProgramIds) {
     const existing = library.find((e) => e.name.toLowerCase() === name.toLowerCase());
     if (existing) return existing;

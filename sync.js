@@ -252,7 +252,8 @@ function rowsToSessions(rows) {
       reps: Number(row.reps),
       loggedAt: String(row.loggedAt || ""),
     };
-    if (!id || !PROGRAM[day] || !set.exerciseId) continue;
+    // Sheet rows are always from finished workouts, so old Friday ("C") rows are kept too.
+    if (!id || !isKnownSessionDay(day, true) || !set.exerciseId) continue;
     if (!Number.isFinite(set.setNumber) || !Number.isFinite(set.weight) || !Number.isFinite(set.reps)) continue;
 
     if (!byId.has(id)) {

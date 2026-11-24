@@ -123,15 +123,7 @@ button {
   flex-shrink: 0;
   font-size: 20px;
   font-weight: 700;
-}
-
-.day-subtitle {
-  min-width: 0;
-  font-size: 15px;
-  color: var(--muted);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .manual-tag {
@@ -193,19 +185,22 @@ button {
   margin-top: 12px;
 }
 
+/* Name on the first line, the subtitle (what the workout holds) below it. */
 .day-option {
   min-height: 48px;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 12px;
   text-align: left;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
 }
 
-.day-option-weekday {
+.day-option-name {
   font-size: 15px;
   font-weight: 600;
 }

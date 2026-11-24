@@ -8,7 +8,7 @@ const state = {
   suggested: "A",
   pickerOpen: false,
   // Text typed in the set fields per day, so it survives re-drawing: { weight: "62,5", reps: "8" }
-  drafts: { A: {}, B: {}, C: {} },
+  drafts: { A: {}, B: {} },
   // Shown in place of the Finish button right after finishing.
   finishedMessage: null,
   // "workout" or "settings": which screen is showing.
@@ -36,27 +36,17 @@ function unfinishedSession(day) {
   return state.sessions.find((s) => s.day === day && !s.finishedAt) || null;
 }
 
-// The most recently finished workout, for one day or (with day = null) for any day.
-function lastFinishedSession(day) {
-  let latest = null;
-  for (const session of state.sessions) {
-    if (!session.finishedAt) continue;
-    if (day !== null && session.day !== day) continue;
-    // ISO dates compare correctly as text.
-    if (!latest || session.finishedAt > latest.finishedAt) latest = session;
-  }
-  return latest;
-}
-
-// Next day in the rotation (A → B → C → A). With no history: Mon → A, Wed → B, Fri → C, else A.
+// The workout to do next: the other one than the last finished A or B. With no history: A.
+// Old Friday ("C") workouts from the 3-day program are ignored here.
 function suggestedDay() {
-  const last = lastFinishedSession(null);
-  if (last) return { A: "B", B: "C", C: "A" }[last.day];
-
-  const weekday = new Date().getDay(); // 0 = Sunday, 1 = Monday, ...
-  if (weekday === 3) return "B";
-  if (weekday === 5) return "C";
-  return "A";
+  let last = null;
+  for (const session of state.sessions) {
+    if (!session.finishedAt || !(session.day in PROGRAM)) continue;
+    // ISO dates compare correctly as text.
+    if (!last || session.finishedAt > last.finishedAt) last = session;
+  }
+  if (!last) return "A";
+  return last.day === "A" ? "B" : "A";
 }
 
 // A complete set today (in the current day's unfinished session), or null.
@@ -86,12 +76,14 @@ function getOrStartSession() {
 }
 
 // The sets of an exercise's "last time".
-// Program exercises: the latest finished session of the same day.
+// Program exercises: the most recent finished session (A or B, or an old 3-day workout) in which
+// this exercise or one of its old ids (`previousIds` in program.js) was logged.
 // Extras: their own most recent use (see extraHistory() in extras.js).
 function lastTimeSets(exercise) {
   if (exercise.isExtra) return extraHistory(exercise);
-  const session = lastFinishedSession(state.day);
-  return session ? session.sets.filter((s) => s.exerciseId === exercise.id) : [];
+  const ids = historyIds(exercise);
+  const session = latestFinishedWith(ids);
+  return session ? session.sets.filter((s) => ids.includes(s.exerciseId)) : [];
 }
 
 function lastTimeSet(exercise, setNumber) {
@@ -183,7 +175,7 @@ function inputRepsClass(reps, exercise) {
   return "";
 }
 
-// Today's blocks: the program's four, then any extra blocks (E, F, …) added to the session.
+// Today's blocks: the program's five, then any extra blocks (F, G, …) added to the session.
 function allBlocks() {
   return PROGRAM[state.day].blocks.concat(extraBlocks(unfinishedSession(state.day)));
 }
@@ -256,7 +248,7 @@ function renderHeader() {
   const logged = blocks.reduce((sum, block) => sum + countLogged(block), 0);
   const isManual = state.day !== state.suggested;
 
-  // The day list only exists in the page while the picker is open.
+  // The workout list only exists in the page while the picker is open.
   let pickerHtml = "";
   if (state.pickerOpen) {
     const options = Object.keys(PROGRAM)
@@ -264,7 +256,7 @@ function renderHeader() {
         const selected = key === state.day;
         return `
           <button class="day-option" type="button" data-day="${key}" aria-pressed="${selected}">
-            <span class="day-option-weekday">${PROGRAM[key].weekday}</span>
+            <span class="day-option-name">${key} · ${PROGRAM[key].name}</span>
             <span class="day-option-subtitle">${PROGRAM[key].subtitle}</span>
           </button>`;
       })
@@ -272,12 +264,12 @@ function renderHeader() {
     pickerHtml = `<div class="day-picker">${options}</div>`;
   }
 
+  // The subtitle only shows in the picker; on a phone it doesn't fit next to the name.
   document.getElementById("header").innerHTML = `
     <div class="header-row">
       <button class="day-toggle" type="button" aria-expanded="${state.pickerOpen}"
-        aria-label="${day.weekday}, ${day.subtitle}. Change day">
-        <span class="day-title">${day.weekday}</span>
-        <span class="day-subtitle">– ${day.subtitle}</span>
+        aria-label="Workout ${state.day}, ${day.name}: ${day.subtitle}. Change workout">
+        <span class="day-title">${state.day} · ${day.name}</span>
         ${isManual ? '<span class="manual-tag">Manual</span>' : ""}
         <span class="day-chevron">${CHEVRON_ICON}</span>
       </button>
@@ -557,7 +549,10 @@ function saveSetFromFields(exerciseId, setNumber, weight, reps) {
     existing.weight = weight;
     existing.reps = reps;
   } else if (complete) {
-    getOrStartSession().sets.push({
+    const session = getOrStartSession();
+    // The exercise's first set today: from now on it keeps its current target (see targetFor()).
+    if (!session.sets.some((s) => s.exerciseId === exerciseId)) freezeTarget(session, findExercise(exerciseId));
+    session.sets.push({
       exerciseId: exerciseId,
       setNumber: setNumber,
       weight: weight,
@@ -567,6 +562,7 @@ function saveSetFromFields(exerciseId, setNumber, weight, reps) {
   } else if (existing) {
     const session = unfinishedSession(state.day);
     session.sets = session.sets.filter((s) => s !== existing);
+    if (!session.sets.some((s) => s.exerciseId === exerciseId)) unfreezeTarget(session, exerciseId);
     // A session with nothing left in it is removed, so it isn't resumed later.
     if (session.sets.length === 0 && !(session.extras && session.extras.length > 0)) {
       state.sessions = state.sessions.filter((s) => s !== session);
@@ -657,6 +653,8 @@ async function finishWorkout() {
   if (!session || session.sets.length === 0) return;
 
   session.finishedAt = new Date().toISOString();
+  // Only needed while the workout is in progress.
+  delete session.targetsUsed;
   const saved = saveSessions(state.sessions);
   state.finishedMessage = saved ? "Saved · syncing…" : null;
   state.drafts[state.day] = {};
@@ -977,14 +975,103 @@ function registerServiceWorker() {
 
 // ---------- One-time data updates ----------
 
+// Each update runs once per phone (remembered in tt.migrations), oldest first.
+// Old workouts are never changed. The Sheet gets the changes on the next sync.
+function runMigrations() {
+  migrateA1Swap();
+  migrateAbSplit();
+}
+
+// Copies a target from one id to another, unless the other one already has a target.
+// Returns true if something was copied.
+function copyTarget(fromId, toId, now) {
+  const fromTarget = ownTarget(fromId);
+  if (!fromTarget || ownTarget(toId)) return false;
+  const entry = state.targets[toId] || emptyTargetEntry();
+  entry.weight = fromTarget.weight;
+  entry.reps = fromTarget.reps;
+  entry.changedAt = now;
+  state.targets[toId] = entry;
+  return true;
+}
+
+// Copies a note from one id to another, unless the other one already has a note.
+// Returns true if something was copied.
+function copyNote(fromId, toId, now) {
+  const fromNote = state.notes[fromId];
+  if (!fromNote || !fromNote.text || state.notes[toId]) return false;
+  state.notes[toId] = { text: fromNote.text, changedAt: now };
+  return true;
+}
+
+// Of these ids, the one whose target (or note) was changed most recently, or null if none has one.
+function newestWithTarget(ids) {
+  const withTarget = ids.filter((id) => ownTarget(id));
+  withTarget.sort((a, b) => (state.targets[a].changedAt < state.targets[b].changedAt ? 1 : -1));
+  return withTarget[0] || null;
+}
+function newestWithNote(ids) {
+  const withNote = ids.filter((id) => state.notes[id] && state.notes[id].text);
+  withNote.sort((a, b) => (state.notes[a].changedAt < state.notes[b].changedAt ? 1 : -1));
+  return withNote[0] || null;
+}
+
+// Re-links every library extra to the current program, after a program change:
+//   - a name that matches a program exercise → linked to that slot;
+//   - a link to a slot that moved (it is in a slot's previousIds) → linked to the new slot;
+//   - a link to a slot that was removed → dropped.
+// An extra that loses all its links becomes a custom extra. It gets the removed slot's target
+// and note, so you can keep doing that exercise as an extra.
+// Returns which kinds of data changed: { library, targets, notes }.
+function relinkLibrary(now) {
+  const changed = { library: false, targets: false, notes: false };
+  const programByName = programExercisesByName();
+  for (const entry of state.library) {
+    const oldIds = entry.sourceProgramIds;
+    const ids = [];
+    const match = programByName.get(entry.name.trim().toLowerCase());
+    if (match) ids.push(...match.ids);
+    for (const id of oldIds) {
+      const current = programExerciseFor(id);
+      if (current && !ids.includes(current.id)) ids.push(current.id);
+    }
+    if (ids.join(",") === oldIds.join(",")) continue;
+    entry.sourceProgramIds = ids;
+    changed.library = true;
+
+    if (ids.length === 0 && oldIds.length > 0) {
+      const targetFrom = newestWithTarget(oldIds);
+      if (targetFrom && copyTarget(targetFrom, entry.id, now)) changed.targets = true;
+      const noteFrom = newestWithNote(oldIds);
+      if (noteFrom && copyNote(noteFrom, entry.id, now)) changed.notes = true;
+    }
+  }
+  return changed;
+}
+
+// Saves whatever an update changed and marks it for the next sync.
+function saveMigrationChanges(changed) {
+  if (changed.targets) {
+    saveTargets(state.targets);
+    markTargetsChanged();
+  }
+  if (changed.notes) {
+    saveNotes(state.notes);
+    markNotesChanged();
+  }
+  if (changed.library) {
+    saveExercises(state.library);
+    markLibraryChanged();
+  }
+}
+
 // November 2026 program change: Friday's Smith press became Incline DB press, Monday got
 // Incline DB press and Wednesday got Barbell bench press. The new slots have new ids, so this:
 //   1. copies targets and notes from the old slots (bench → Wednesday, incline → Monday and Friday),
 //      only where the new slot has none yet;
-//   2. re-links library extras to the program slots that now carry their name;
+//   2. re-links library extras to the program (see relinkLibrary());
 //   3. changes every library exercise with 2 sets to 3 sets.
-// Old workouts are not touched. The Sheet gets the changes on the next sync.
-function runMigrations() {
+function migrateA1Swap() {
   const name = "2026-11-a1-swap";
   if (migrationDone(name)) return;
   const now = new Date().toISOString();
@@ -994,56 +1081,56 @@ function runMigrations() {
     ["B-incline-db", "A-incline-db"],
     ["B-incline-db", "C-incline-db"],
   ];
-  let targetsChanged = false;
-  let notesChanged = false;
+  const changed = relinkLibrary(now);
   for (const [from, to] of copies) {
-    const fromTarget = ownTarget(from);
-    if (fromTarget && !ownTarget(to)) {
-      const entry = state.targets[to] || emptyTargetEntry();
-      entry.weight = fromTarget.weight;
-      entry.reps = fromTarget.reps;
-      entry.changedAt = now;
-      state.targets[to] = entry;
-      targetsChanged = true;
-    }
-    const fromNote = state.notes[from];
-    if (fromNote && fromNote.text && !state.notes[to]) {
-      state.notes[to] = { text: fromNote.text, changedAt: now };
-      notesChanged = true;
-    }
+    if (copyTarget(from, to, now)) changed.targets = true;
+    if (copyNote(from, to, now)) changed.notes = true;
   }
-
-  const programByName = programExercisesByName();
-  let libraryChanged = false;
   for (const entry of state.library) {
-    // Same name as a program exercise → linked to exactly those slots. Otherwise drop removed slots.
-    const match = programByName.get(entry.name.trim().toLowerCase());
-    const ids = match ? match.ids.slice() : entry.sourceProgramIds.filter((id) => !(id in RETIRED_EXERCISES));
-    if (ids.join(",") !== entry.sourceProgramIds.join(",")) {
-      entry.sourceProgramIds = ids;
-      libraryChanged = true;
-    }
     if (entry.sets === 2) {
       entry.sets = 3;
-      libraryChanged = true;
+      changed.library = true;
     }
   }
-
-  if (targetsChanged) {
-    saveTargets(state.targets);
-    markTargetsChanged();
-  }
-  if (notesChanged) {
-    saveNotes(state.notes);
-    markNotesChanged();
-  }
-  if (libraryChanged) {
-    saveExercises(state.library);
-    markLibraryChanged();
-  }
+  saveMigrationChanges(changed);
   markMigrationDone(name);
 }
 
+// November 2026 program change: Monday/Wednesday/Friday became two workouts, A and B, done in turn.
+//   1. Every slot that came from old slots (`previousIds` in program.js) gets the target and note
+//      of the old slot changed most recently, where it has none yet. Its "last time" already
+//      reads the old slots' sets, so the workouts themselves don't change.
+//   2. Re-links library extras to the new program (see relinkLibrary()).
+//   3. Every library exercise gets 3 sets, like the whole program.
+//   4. An extra block in a workout in progress gets its letter after the program's new block E.
+//   5. An unfinished Friday workout was already dropped when loading (see isValidSession());
+//      saving makes that permanent.
+function migrateAbSplit() {
+  const name = "2026-11-ab-split";
+  if (migrationDone(name)) return;
+  const now = new Date().toISOString();
+
+  const changed = relinkLibrary(now);
+  for (const exercise of allProgramExercises()) {
+    const oldIds = exercise.previousIds || [];
+    const targetFrom = newestWithTarget(oldIds);
+    if (targetFrom && copyTarget(targetFrom, exercise.id, now)) changed.targets = true;
+    const noteFrom = newestWithNote(oldIds);
+    if (noteFrom && copyNote(noteFrom, exercise.id, now)) changed.notes = true;
+  }
+  for (const entry of state.library) {
+    if (entry.sets !== 3) {
+      entry.sets = 3;
+      changed.library = true;
+    }
+  }
+  for (const session of state.sessions) {
+    if (!session.finishedAt && Array.isArray(session.extras)) relabelExtras(session);
+  }
+  saveSessions(state.sessions);
+  saveMigrationChanges(changed);
+  markMigrationDone(name);
+}
 // ---------- Start ----------
 
 requestPersistentStorage();

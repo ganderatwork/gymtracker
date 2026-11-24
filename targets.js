@@ -37,9 +37,33 @@ function programTargetFor(exercise) {
   return best;
 }
 
-// The target that drives this card's weight prefill and rep colors, or null.
-function targetFor(exercise) {
+// The target as it is right now (what the target line shows), or null.
+function currentTargetFor(exercise) {
   return ownsTarget(exercise) ? ownTarget(exercise.id) : programTargetFor(exercise);
+}
+
+// The target that drives this card's weight prefill, rep colors and suggestions, or null.
+// Once an exercise has a logged set today, it keeps the target it had at that moment
+// (saved in the session's `targetsUsed`). So raising the target after hitting it doesn't
+// take the green away from today's sets; the new target counts from the next workout.
+function targetFor(exercise) {
+  const session = unfinishedSession(state.day);
+  if (session && session.targetsUsed && exercise.id in session.targetsUsed) {
+    return session.targetsUsed[exercise.id];
+  }
+  return currentTargetFor(exercise);
+}
+
+// Called when an exercise gets its first logged set today: remembers its target for the rest of the workout.
+function freezeTarget(session, exercise) {
+  if (!session.targetsUsed) session.targetsUsed = {};
+  const t = currentTargetFor(exercise);
+  session.targetsUsed[exercise.id] = t ? { weight: t.weight, reps: t.reps } : null;
+}
+
+// Called when an exercise has no logged sets left today: it follows the current target again.
+function unfreezeTarget(session, exerciseId) {
+  if (session.targetsUsed) delete session.targetsUsed[exerciseId];
 }
 
 // "3 × 11 · 22.5 kg"
@@ -84,27 +108,24 @@ function tidyTargetEntry(exerciseId) {
 // Runs once, the first time there are finished workouts: every program slot and custom extra
 // with history gets a target from the last finished session it was logged in:
 //   weight = the heaviest logged weight, reps = the average reps of all its sets, rounded up.
+// A program slot's history includes its old ids (`previousIds` in program.js).
 // Existing targets (e.g. restored from the Sheet) are never overwritten.
 function initTargets() {
   if (targetsInitialized()) return;
   if (!state.sessions.some((s) => s.finishedAt)) return; // nothing to learn from yet
 
-  const ids = [];
-  for (const day of Object.values(PROGRAM)) {
-    for (const block of day.blocks) {
-      for (const ex of block.exercises) ids.push(ex.id);
-    }
-  }
+  // [id, ids whose sets count as its history]
+  const list = allProgramExercises().map((ex) => [ex.id, historyIds(ex)]);
   for (const entry of state.library) {
-    if (entry.sourceProgramIds.length === 0) ids.push(entry.id);
+    if (entry.sourceProgramIds.length === 0) list.push([entry.id, [entry.id]]);
   }
 
   let created = 0;
-  for (const id of ids) {
+  for (const [id, ids] of list) {
     if (ownTarget(id)) continue;
-    const session = latestFinishedWith([id]);
+    const session = latestFinishedWith(ids);
     if (!session) continue;
-    const sets = session.sets.filter((s) => s.exerciseId === id);
+    const sets = session.sets.filter((s) => ids.includes(s.exerciseId));
     const weight = Math.max(...sets.map((s) => s.weight));
     const averageReps = sets.reduce((sum, s) => sum + s.reps, 0) / sets.length;
     const entry = state.targets[id] || emptyTargetEntry();
@@ -131,8 +152,24 @@ function computeSuggestion(exercise, session) {
     if (!set) return null;
     sets.push(set);
   }
+  // The target this workout started the exercise with (see targetFor()).
+  const target = targetFor(exercise);
+  const suggestion = ruleSuggestion(exercise, sets, target);
+  // Only suggest something above the target as it is now. Without this, raising the target
+  // (e.g. with Accept) would bring the same suggestion straight back.
+  const now = ownTarget(exercise.id);
+  if (suggestion && now && !isHigher(suggestion, now)) return null;
+  return suggestion;
+}
+
+// More weight, or the same weight with more reps.
+function isHigher(a, b) {
+  return a.weight > b.weight || (a.weight === b.weight && a.reps > b.reps);
+}
+
+// R1, R2 or R3 for these complete sets against `target` (which may be null).
+function ruleSuggestion(exercise, sets, target) {
   const first = sets[0];
-  const target = ownTarget(exercise.id);
 
   // R3 – no target yet: suggest the first set.
   if (!target) return { weight: first.weight, reps: first.reps };
@@ -282,7 +319,8 @@ function refreshTargetArea(exerciseId) {
 }
 
 // After a target change, untouched weight fields (nothing typed, not logged) show the new prefill,
-// and the reps colors follow the new target reps.
+// and the reps colors follow the new target reps. Exercises already started today keep their
+// old target for both (see targetFor()), so nothing changes on those.
 function refreshCardPrefills(exerciseId) {
   const card = document.querySelector(`.card[data-card="${CSS.escape(exerciseId)}"]`);
   const exercise = findExercise(exerciseId);

@@ -1,6 +1,6 @@
 # gymtracker
 
-A personal workout-logging app for an Android phone. It runs a fixed 3-day program, shows last time's numbers next to today's inputs, and tells you when to add weight. Workouts are saved on the phone first and backed up to a Google Sheet.
+A personal workout-logging app for an Android phone. It runs two fixed workouts, A and B, done in turn (A B A, B A B, …), shows last time's numbers next to today's inputs, and tells you when to add weight. Workouts are saved on the phone first and backed up to a Google Sheet.
 
 Plain HTML, CSS and JavaScript. No build step: the files in this repo are the app.
 
@@ -101,17 +101,18 @@ To test restoring: Chrome → **⋮** → **Settings** → **Site settings** →
 
 Add `?debug` to the address (e.g. `https://ganderatwork.github.io/gymtracker/?debug`) to show two buttons:
 
-- **Debug: fake history** adds fake finished workouts (Monday a week ago, Wednesday 5 days ago, Friday 3 days ago) and **replaces all targets on that device** with ones made from them by the real one-time setup. Use it on a test device or a local copy (`python -m http.server`), not on your real phone data. Then on Monday:
-  - **Initialization:** every card shows "Target …". Chest-supported row logged 8, 8, 7 reps, so its target is 3 × 8 · 25 kg (average rounded up).
+- **Debug: fake history** adds fake finished workouts (an old 3-day-program Friday 10 days ago, A a week ago, B 3 days ago) and **replaces all targets on that device** with ones made from them by the real one-time setup. Use it on a test device or a local copy (`python -m http.server`), not on your real phone data. The app then suggests A:
+  - **Initialization:** most cards show "Target …". Chest-supported row logged 8, 8, 7 reps, so its target is 3 × 8 · 25 kg (average rounded up).
   - **R1:** Chest-supported row: set 1 at 27.5 kg, all three sets 8 reps → "Next target: 3 × 8 · 27.5 kg".
-  - **R2:** Romanian deadlift (target 3 × 7 · 30 kg): all three sets 7 reps → "Next target: 3 × 8 · 30 kg".
+  - **R2:** Seated leg curl (target 3 × 10 · 40 kg): all three sets 10 reps → "Next target: 3 × 11 · 40 kg".
+  - **Target freeze:** Seated leg curl: log 11 reps on all three sets (green, above the target), then accept "3 × 12". The sets stay green, because today still compares against the target they started with.
   - **R3:** Overhead cable triceps extension has no history ("No target yet"). Log all three sets → it suggests your set 1.
-  - **Dismiss:** switch to Wednesday: Barbell bench press already has a suggestion waiting from last Wednesday. Try Accept, Edit and ×.
-  - **ADD WEIGHT:** Incline DB press on Monday and bench press on Wednesday (and Cable crunch) logged every set at the top of the range, so the weight fields start empty.
-  - **Program target for an extra:** switch to Wednesday and add "Cable lateral raise" as an extra. Monday's slot has 50 kg × 15, Friday's 45 kg × 13, so it shows the lighter "Program target 3 × 13 · 45 kg" and prefills 45.
+  - **Dismiss:** switch to B: Barbell bench press already has a suggestion waiting from the last B workout. Try Accept, Edit and ×.
+  - **ADD WEIGHT:** Incline DB press on A and bench press on B (and Cable crunch) logged every set at the top of the range, so the weight fields start empty.
+  - **History from the old program:** on B, Pec deck was skipped in the fake B workout. Its "last time" (35 × 15 ✓) and its target come from the old Friday workout, through `previousIds` in `program.js`.
+  - **Program target for an extra:** on A, add "Pec deck" as an extra: "Program target 3 × 15 · 35 kg" from B's slot. On B, add "Cable lateral raise": "Program target 3 × 13 · 45 kg" from A's slot, prefilled with 45. Extra blocks start at F.
   - **Custom extra:** add "Cable crunch": its own target 3 × 15 · 40 kg, tappable, with suggestions.
-  - **Notes:** Wednesday's bench press has a sample note at the bottom of its card (tap to edit; clear it to delete it). Cards without a note show a pencil with "Add note". The Cable lateral raise extra on Wednesday shows Friday's note as "Program note" (read-only).
-
+  - **Notes:** B's bench press has a sample note at the bottom of its card (tap to edit; clear it to delete it). Cards without a note show a pencil with "Add note". The Cable lateral raise extra on B shows A's note as "Program note" (read-only).
   The fake workouts and targets are never sent to the Sheet, unless you change a target afterwards: then all targets on that device are sent. The fake extra exercises are added to your library.
 - **Debug: clear all** deletes every workout, extra exercise, target and note on that device.
 
